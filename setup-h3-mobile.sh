@@ -47,11 +47,33 @@ else
     echo "WARNING: ComfyUI-KJNodes missing"
 fi
 
-if python -c "import sageattention" >/dev/null 2>&1; then
+if python -c "from sageattention import sageattn" >/dev/null 2>&1; then
     echo "OK: SageAttention already installed"
 else
-    echo "Installing SageAttention 2.2.0..."
-    python -m pip install sageattention==2.2.0 --no-build-isolation
+    echo "Installing SageAttention from official source..."
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cuda-libraries-dev-13-0 ninja-build git
+
+    rm -rf /workspace/SageAttention
+    git clone --depth 1 https://github.com/thu-ml/SageAttention.git /workspace/SageAttention
+
+    SAGE_ARCH="$(python - <<'PY2'
+import torch
+major, minor = torch.cuda.get_device_capability()
+print(f"{major}.{minor}")
+PY2
+)"
+    echo "SageAttention CUDA arch: $SAGE_ARCH"
+
+    cd /workspace/SageAttention
+    rm -rf build
+    export TORCH_CUDA_ARCH_LIST="$SAGE_ARCH"
+    export EXT_PARALLEL=4
+    export NVCC_APPEND_FLAGS="--threads 8"
+    export MAX_JOBS=8
+    python setup.py install
+    cd "$COMFYUI_DIR"
+
     python -c "from sageattention import sageattn"
     echo "OK: SageAttention installed"
 fi
