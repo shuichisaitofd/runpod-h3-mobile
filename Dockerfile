@@ -2,14 +2,16 @@ FROM runpod/worker-comfyui:main-base
 
 USER root
 
-# Add MiniMax H3 acceleration custom nodes to the image itself.
+# The RunPod base image keeps its baked ComfyUI bundle under /opt/comfyui-baked.
+# Anything added there is copied into /workspace/runpod-slim/ComfyUI on first boot.
 RUN set -eux; \
-    cd /workspace/runpod-slim/ComfyUI/custom_nodes; \
+    cd /opt/comfyui-baked/custom_nodes; \
     git clone --depth 1 https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo.git; \
     git clone --depth 1 https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3.git; \
     git clone --depth 1 https://github.com/Saganaki22/ComfyUI-sol-attn.git
 
-COPY run.sh /run.sh
-RUN chmod +x /run.sh
+# Bake SageAttention into the image. Do not replace Torch/CUDA.
+RUN python3.12 -m pip install --no-cache-dir sageattention==2.2.0 --no-build-isolation
 
-CMD ["/run.sh"]
+# Keep RunPod's normal /start.sh unchanged.
+CMD ["/start.sh"]
