@@ -5,6 +5,7 @@ from server import PromptServer
 
 BASE_DIR = Path(__file__).resolve().parent
 WEB_DIR = BASE_DIR / "web"
+API_WORKFLOW = BASE_DIR / "api_workflows" / "ref2va.json"
 
 routes = PromptServer.instance.routes
 
@@ -27,6 +28,13 @@ async def h3_mobile_css(request):
 @routes.get("/h3-mobile/health")
 async def h3_mobile_health(request):
     return web.json_response({"ok": True, "service": "h3-mobile"})
+
+
+@routes.get("/h3-mobile/api/ref2va-workflow")
+async def h3_mobile_ref2va_workflow(request):
+    if not API_WORKFLOW.is_file():
+        raise web.HTTPNotFound(text="Ref2VA API workflow is not installed yet")
+    return web.FileResponse(API_WORKFLOW)
 
 
 NODE_CLASS_MAPPINGS = {}
