@@ -70,7 +70,6 @@ install_model() {
     echo "Downloading model: $label"
     mkdir -p "$(dirname "$dest")"
 
-    # Resume a partial download when the server supports byte ranges.
     if curl -fL --retry 5 --retry-delay 3 --retry-all-errors -C - \
         -o "$tmp" "$url"; then
         mv "$tmp" "$dest"
@@ -87,7 +86,6 @@ install_node \
   "ComfyUI-MiniMax-H3-Turbo" \
   "https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo.git" || true
 
-# KJNodes is baked into the RunPod ComfyUI image. Do not reinstall/overwrite it.
 if [ -d "$CUSTOM/ComfyUI-KJNodes" ]; then
     echo "OK: ComfyUI-KJNodes present"
 else
@@ -95,7 +93,6 @@ else
 fi
 
 # 2) SageAttention
-# Build against the CUDA toolkit matching the active PyTorch build.
 if python -c "from sageattention import sageattn" >/dev/null 2>&1; then
     echo "OK: SageAttention already installed"
 else
@@ -189,14 +186,18 @@ install_node \
   "ComfyUI-sol-attn" \
   "https://github.com/Saganaki22/ComfyUI-sol-attn.git" || true
 
-# 4) H3 model files required by the two bundled Ref2VA workflows.
-# Keep this first test lean: download only the exact shared files + Ref2VA base + Turbo LoRA.
+# 4) H3 model files for both Ref2VA and image-to-video / FL2VA.
 HF_H3="https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main"
 
 install_model \
   "MiniMax H3 Ref2VA INT8" \
   "$HF_H3/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors" \
   "$MODELS/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors" || true
+
+install_model \
+  "MiniMax H3 FL2VA INT8" \
+  "$HF_H3/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors" \
+  "$MODELS/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors" || true
 
 install_model \
   "Qwen3-VL 32B MiniMax H3 NVFP4 AWQ" \
