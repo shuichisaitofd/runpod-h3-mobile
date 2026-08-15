@@ -30,8 +30,6 @@ CUSTOM="$COMFYUI_DIR/custom_nodes"
 WORKFLOWS="$COMFYUI_DIR/user/default/workflows"
 mkdir -p "$CUSTOM" "$WORKFLOWS"
 
-# Clone into a temporary directory first. This avoids treating a partial clone
-# from a previous failed download as a valid installation.
 install_node() {
     local name="$1"
     local url="$2"
@@ -69,30 +67,28 @@ else
 fi
 
 # 2) SageAttention
-# Use the same source-build path that has already worked in this RunPod H3 setup.
-# Select CUDA dev libraries to match the active PyTorch CUDA build (12.8 or 13.0).
-# Do not use PyPI sageattention==2.2.0 here.
+# Build against the CUDA toolkit matching the active PyTorch build.
+# NVIDIA's cuda-libraries-dev package does not provide nvcc by itself,
+# so also install the matching cuda-compiler package.
 if python -c "from sageattention import sageattn" >/dev/null 2>&1; then
     echo "OK: SageAttention already installed"
 else
     echo "Installing SageAttention from official source..."
     SAGE_CAN_BUILD=1
 
-    CUDA_DEV_SUFFIX="$(python - <<'PY2'
+    CUDA_VERSION="$(python - <<'PY2'
 import torch
-v = torch.version.cuda or ""
-parts = v.split(".")
-if len(parts) >= 2:
-    print(f"{parts[0]}-{parts[1]}")
+print(torch.version.cuda or "")
 PY2
 )"
+    CUDA_DEV_SUFFIX="${CUDA_VERSION/./-}"
 
     case "$CUDA_DEV_SUFFIX" in
         12-8|13-0)
-            echo "SageAttention CUDA toolkit target: $CUDA_DEV_SUFFIX"
+            echo "SageAttention CUDA toolkit target: $CUDA_VERSION"
             ;;
         *)
-            echo "[ERROR] Unsupported/unknown PyTorch CUDA version: ${CUDA_DEV_SUFFIX:-none}; SageAttention build skipped."
+            echo "[ERROR] Unsupported/unknown PyTorch CUDA version: ${CUDA_VERSION:-none}; SageAttention build skipped."
             SAGE_CAN_BUILD=0
             ;;
     esac
@@ -101,9 +97,26 @@ PY2
         if ! apt-get update; then
             echo "[ERROR] apt-get update failed; SageAttention build skipped."
             SAGE_CAN_BUILD=0
-        elif ! DEBIAN_FRONTEND=noninteractive apt-get install -y "cuda-libraries-dev-${CUDA_DEV_SUFFIX}" ninja-build git; then
+        elif ! DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            "cuda-compiler-${CUDA_DEV_SUFFIX}" \
+            "cuda-libraries-dev-${CUDA_DEV_SUFFIX}" \
+            ninja-build git; then
             echo "[ERROR] SageAttention build dependencies failed to install; build skipped."
             SAGE_CAN_BUILD=0
+        fi
+    fi
+
+    if [ "$SAGE_CAN_BUILD" -eq 1 ]; then
+        CUDA_HOME="/usr/local/cuda-${CUDA_VERSION}"
+        export CUDA_HOME
+        export PATH="$CUDA_HOME/bin:$PATH"
+        export LD_LIBRARY_PATH="$CUDA_HOME/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+        if [ ! -x "$CUDA_HOME/bin/nvcc" ]; then
+            echo "[ERROR] nvcc not found at $CUDA_HOME/bin/nvcc; SageAttention build skipped."
+            SAGE_CAN_BUILD=0
+        else
+            echo "SageAttention nvcc: $($CUDA_HOME/bin/nvcc -V | tail -n 1)"
         fi
     fi
 
@@ -151,7 +164,6 @@ install_node \
   "https://github.com/Saganaki22/ComfyUI-sol-attn.git" || true
 
 # 4) Workflow JSONs
-# Download to /tmp, validate as JSON, then move into the ComfyUI workflow folder.
 RAW_BASE="https://raw.githubusercontent.com/shuichisaitofd/runpod-h3-mobile/main/workflows"
 
 install_workflow() {
