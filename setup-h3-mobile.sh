@@ -61,7 +61,7 @@ install_node \
   "ComfyUI-MiniMax-H3-Turbo" \
   "https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo.git" || true
 
-# KJNodes is baked into runpod/comfyui:cuda13.0. Do not reinstall/overwrite it.
+# KJNodes is baked into the RunPod ComfyUI image. Do not reinstall/overwrite it.
 if [ -d "$CUSTOM/ComfyUI-KJNodes" ]; then
     echo "OK: ComfyUI-KJNodes present"
 else
@@ -70,6 +70,7 @@ fi
 
 # 2) SageAttention
 # Use the same source-build path that has already worked in this RunPod H3 setup.
+# Select CUDA dev libraries to match the active PyTorch CUDA build (12.8 or 13.0).
 # Do not use PyPI sageattention==2.2.0 here.
 if python -c "from sageattention import sageattn" >/dev/null 2>&1; then
     echo "OK: SageAttention already installed"
@@ -77,12 +78,33 @@ else
     echo "Installing SageAttention from official source..."
     SAGE_CAN_BUILD=1
 
-    if ! apt-get update; then
-        echo "[ERROR] apt-get update failed; SageAttention build skipped."
-        SAGE_CAN_BUILD=0
-    elif ! DEBIAN_FRONTEND=noninteractive apt-get install -y cuda-libraries-dev-13-0 ninja-build git; then
-        echo "[ERROR] SageAttention build dependencies failed to install; build skipped."
-        SAGE_CAN_BUILD=0
+    CUDA_DEV_SUFFIX="$(python - <<'PY2'
+import torch
+v = torch.version.cuda or ""
+parts = v.split(".")
+if len(parts) >= 2:
+    print(f"{parts[0]}-{parts[1]}")
+PY2
+)"
+
+    case "$CUDA_DEV_SUFFIX" in
+        12-8|13-0)
+            echo "SageAttention CUDA toolkit target: $CUDA_DEV_SUFFIX"
+            ;;
+        *)
+            echo "[ERROR] Unsupported/unknown PyTorch CUDA version: ${CUDA_DEV_SUFFIX:-none}; SageAttention build skipped."
+            SAGE_CAN_BUILD=0
+            ;;
+    esac
+
+    if [ "$SAGE_CAN_BUILD" -eq 1 ]; then
+        if ! apt-get update; then
+            echo "[ERROR] apt-get update failed; SageAttention build skipped."
+            SAGE_CAN_BUILD=0
+        elif ! DEBIAN_FRONTEND=noninteractive apt-get install -y "cuda-libraries-dev-${CUDA_DEV_SUFFIX}" ninja-build git; then
+            echo "[ERROR] SageAttention build dependencies failed to install; build skipped."
+            SAGE_CAN_BUILD=0
+        fi
     fi
 
     if [ "$SAGE_CAN_BUILD" -eq 1 ]; then
