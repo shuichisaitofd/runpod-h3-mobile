@@ -56,36 +56,12 @@ install_node() {
     return 1
 }
 
-install_model() {
-    local label="$1"
-    local url="$2"
-    local dest="$3"
-    local tmp="${dest}.part"
-
-    if [ -s "$dest" ]; then
-        echo "OK: model already exists: $label"
-        return 0
-    fi
-
-    echo "Downloading model: $label"
-    mkdir -p "$(dirname "$dest")"
-
-    if curl -fL --retry 5 --retry-delay 3 --retry-all-errors -C - \
-        -o "$tmp" "$url"; then
-        mv "$tmp" "$dest"
-        echo "OK: model downloaded: $label"
-        return 0
-    fi
-
-    echo "[ERROR] model download failed: $label"
-    return 1
-}
-
 # 1) Turbo v4 custom node
 install_node \
   "ComfyUI-MiniMax-H3-Turbo" \
   "https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo.git" || true
 
+# KJNodes is baked into the RunPod ComfyUI image. Do not reinstall/overwrite it.
 if [ -d "$CUSTOM/ComfyUI-KJNodes" ]; then
     echo "OK: ComfyUI-KJNodes present"
 else
@@ -93,6 +69,7 @@ else
 fi
 
 # 2) SageAttention
+# Build against the CUDA toolkit matching the active PyTorch build.
 if python -c "from sageattention import sageattn" >/dev/null 2>&1; then
     echo "OK: SageAttention already installed"
 else
@@ -186,40 +163,11 @@ install_node \
   "ComfyUI-sol-attn" \
   "https://github.com/Saganaki22/ComfyUI-sol-attn.git" || true
 
-# 4) H3 model files for both Ref2VA and image-to-video / FL2VA.
-HF_H3="https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main"
+# H3 model files are intentionally NOT downloaded here.
+# Upload Ref2VA / FL2VA / text encoder / VAEs / Turbo LoRA manually after Pod startup.
+echo "H3 model auto-download: disabled (manual upload mode)"
 
-install_model \
-  "MiniMax H3 Ref2VA INT8" \
-  "$HF_H3/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors" \
-  "$MODELS/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors" || true
-
-install_model \
-  "MiniMax H3 FL2VA INT8" \
-  "$HF_H3/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors" \
-  "$MODELS/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors" || true
-
-install_model \
-  "Qwen3-VL 32B MiniMax H3 NVFP4 AWQ" \
-  "$HF_H3/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" \
-  "$MODELS/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" || true
-
-install_model \
-  "MiniMax H3 video VAE FP16" \
-  "$HF_H3/vae/minimax_h3_video_vae_fp16.safetensors" \
-  "$MODELS/vae/minimax_h3_video_vae_fp16.safetensors" || true
-
-install_model \
-  "MiniMax H3 audio VAE FP32" \
-  "$HF_H3/vae/minimax_h3_audio_vae_fp32.safetensors" \
-  "$MODELS/vae/minimax_h3_audio_vae_fp32.safetensors" || true
-
-install_model \
-  "MiniMax H3 Turbo LoRA v4 step600 EMA" \
-  "https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora/resolve/main/minimax_h3_turbo_v4_step600_ema.safetensors" \
-  "$MODELS/loras/minimax_h3_turbo_v4_step600_ema.safetensors" || true
-
-# 5) Workflow JSONs
+# 4) Workflow JSONs
 RAW_BASE="https://raw.githubusercontent.com/shuichisaitofd/runpod-h3-mobile/main/workflows"
 
 install_workflow() {
