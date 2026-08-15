@@ -167,7 +167,42 @@ install_node \
 # Upload Ref2VA / FL2VA / text encoder / VAEs / Turbo LoRA manually after Pod startup.
 echo "H3 model auto-download: disabled (manual upload mode)"
 
-# 4) Workflow JSONs
+# 4) H3 mobile UI custom route on the same ComfyUI port (8188).
+MOBILE_SRC="https://raw.githubusercontent.com/shuichisaitofd/runpod-h3-mobile/main/h3-mobile"
+MOBILE_DEST="$CUSTOM/ComfyUI-H3-Mobile"
+mkdir -p "$MOBILE_DEST/web" "$MOBILE_DEST/api_workflows"
+
+install_mobile_file() {
+    local relative="$1"
+    local dest="$MOBILE_DEST/$relative"
+    mkdir -p "$(dirname "$dest")"
+    if curl -fsSL "$MOBILE_SRC/$relative" -o "$dest"; then
+        echo "OK: H3 mobile file installed: $relative"
+        return 0
+    fi
+    echo "[ERROR] H3 mobile file failed: $relative"
+    return 1
+}
+
+install_mobile_file "__init__.py" || true
+install_mobile_file "web/index.html" || true
+install_mobile_file "web/app.js" || true
+install_mobile_file "web/styles.css" || true
+
+# Install API-format workflow automatically once it exists in GitHub.
+if curl -fsSL "$MOBILE_SRC/api_workflows/ref2va.json" -o "$MOBILE_DEST/api_workflows/ref2va.json"; then
+    if python -m json.tool "$MOBILE_DEST/api_workflows/ref2va.json" >/dev/null 2>&1; then
+        echo "OK: H3 mobile Ref2VA API workflow installed"
+    else
+        rm -f "$MOBILE_DEST/api_workflows/ref2va.json"
+        echo "[ERROR] H3 mobile Ref2VA API workflow invalid; removed"
+    fi
+else
+    rm -f "$MOBILE_DEST/api_workflows/ref2va.json"
+    echo "H3 mobile Ref2VA API workflow: not published yet"
+fi
+
+# 5) Workflow JSONs
 RAW_BASE="https://raw.githubusercontent.com/shuichisaitofd/runpod-h3-mobile/main/workflows"
 
 install_workflow() {
@@ -192,6 +227,7 @@ install_workflow "H3_Spectrum_SolAttn_16step.json" || true
 
 echo "============================================="
 echo "  H3 mobile auto setup finished"
+echo "  H3 mobile URL: /h3-mobile"
 echo "  Continuing official RunPod startup"
 echo "============================================="
 '''
