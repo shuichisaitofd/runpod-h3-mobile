@@ -1,45 +1,45 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-COMFY="/workspace/runpod-slim/ComfyUI"
-CUSTOM="$COMFY/custom_nodes"
-LOG="/workspace/runpod-slim/h3_mobile_boot.log"
+TMP_START="/tmp/start-h3-mobile.sh"
+cp /start.sh "$TMP_START"
 
-mkdir -p "$(dirname "$LOG")"
-exec > >(tee -a "$LOG") 2>&1
+python3.12 - <<'PY'
+from pathlib import Path
 
-echo "============================================="
-echo " H3 mobile boot setup"
-date -Is
-echo "============================================="
+p = Path('/tmp/start-h3-mobile.sh')
+text = p.read_text()
+marker = 'python -m pip --version > /dev/null 2>&1'
+if marker not in text:
+    raise SystemExit('RunPod start.sh structure changed: insertion point not found')
 
-# RunPod base image normally provides ComfyUI-KJNodes already.
-if [ -d "$CUSTOM/ComfyUI-KJNodes" ]; then
-  echo "OK: ComfyUI-KJNodes present"
-else
-  echo "WARNING: ComfyUI-KJNodes not found"
-fi
-
-# SageAttention can depend on the runtime Torch/CUDA stack, so install/check it at Pod boot.
-PYTHON_BIN=""
-for c in "$COMFY/.venv/bin/python" "/workspace/runpod-slim/.venv/bin/python" "$(command -v python3 2>/dev/null || true)" "$(command -v python 2>/dev/null || true)"; do
-  if [ -n "$c" ] && [ -x "$c" ]; then
-    PYTHON_BIN="$c"
-    break
-  fi
+block = r'''
+# -------------------------------------------------------------------------
+# H3 MOBILE: copy extra custom nodes into the real ComfyUI after first setup
+# -------------------------------------------------------------------------
+mkdir -p "$COMFYUI_DIR/custom_nodes"
+for src in /opt/h3-custom-nodes/*; do
+    [ -e "$src" ] || continue
+    name=$(basename "$src")
+    dest="$COMFYUI_DIR/custom_nodes/$name"
+    if [ -e "$dest" ]; then
+        echo "H3 mobile: $name already present"
+    else
+        echo "H3 mobile: installing $name"
+        cp -a "$src" "$dest"
+    fi
 done
 
-if [ -z "$PYTHON_BIN" ]; then
-  echo "WARNING: Python not found before /start.sh; SageAttention check deferred"
+if python -c "import sageattention" >/dev/null 2>&1; then
+    echo "H3 mobile: SageAttention OK"
 else
-  if "$PYTHON_BIN" -c "import sageattention" >/dev/null 2>&1; then
-    echo "OK: SageAttention already installed"
-  else
-    echo "Installing SageAttention 2.2.0..."
-    "$PYTHON_BIN" -m pip install sageattention==2.2.0 --no-build-isolation || echo "WARNING: SageAttention install failed"
-  fi
+    echo "H3 mobile: WARNING SageAttention import failed"
 fi
+# -------------------------------------------------------------------------
+'''
 
-# Do not replace Torch, ComfyUI itself, or H3 model files here.
-# Hand control back to RunPod's standard startup so Jupyter/SSH/ComfyUI behave normally.
-exec /start.sh
+text = text.replace(marker, block + '\n' + marker, 1)
+p.write_text(text)
+PY
+
+exec bash "$TMP_START" "$@"
