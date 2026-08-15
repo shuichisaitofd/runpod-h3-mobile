@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -uo pipefail
 
 TMP_START="/tmp/start-h3-mobile.sh"
-cp /start.sh "$TMP_START"
 
-python3 - <<'PY'
+# Keep RunPod's official startup flow intact. If patch preparation fails,
+# fall back to the untouched official /start.sh instead of crash-looping.
+if ! cp /start.sh "$TMP_START"; then
+    echo "[ERROR] Could not copy /start.sh. Starting standard RunPod startup."
+    exec /start.sh
+fi
+
+if ! python3 - <<'PY'
 from pathlib import Path
 
 p = Path("/tmp/start-h3-mobile.sh")
 text = p.read_text()
 
+# Insert only after ComfyUI exists and its venv has been activated.
 marker = "# Warm up pip so ComfyUI-Manager"
 if marker not in text:
     raise SystemExit("RunPod start.sh structure changed: insertion point not found")
@@ -23,86 +30,140 @@ CUSTOM="$COMFYUI_DIR/custom_nodes"
 WORKFLOWS="$COMFYUI_DIR/user/default/workflows"
 mkdir -p "$CUSTOM" "$WORKFLOWS"
 
-clone_if_missing() {
+# Clone into a temporary directory first. This avoids treating a partial clone
+# from a previous failed download as a valid installation.
+install_node() {
     local name="$1"
     local url="$2"
     local path="$CUSTOM/$name"
+    local tmp="${path}.tmp"
 
-    if [ -e "$path" ]; then
+    if [ -d "$path/.git" ] && git -C "$path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         echo "OK: $name already exists"
-    else
-        echo "Installing $name..."
-        git clone --depth 1 "$url" "$path"
+        return 0
     fi
+
+    echo "Installing $name..."
+    rm -rf "$path" "$tmp"
+    if git clone --depth 1 "$url" "$tmp"; then
+        mv "$tmp" "$path"
+        echo "OK: $name installed"
+        return 0
+    fi
+
+    rm -rf "$tmp"
+    echo "[ERROR] $name clone failed. Continuing startup."
+    return 1
 }
 
-# 1) Turbo v4 + SageAttention
-clone_if_missing \
+# 1) Turbo v4
+install_node \
   "ComfyUI-MiniMax-H3-Turbo" \
-  "https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo.git"
+  "https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo.git" || true
 
+# KJNodes is baked into runpod/comfyui:cuda13.0. Do not reinstall/overwrite it.
 if [ -d "$CUSTOM/ComfyUI-KJNodes" ]; then
     echo "OK: ComfyUI-KJNodes present"
 else
-    echo "WARNING: ComfyUI-KJNodes missing"
+    echo "[ERROR] ComfyUI-KJNodes is missing. Continuing startup without modifying it."
 fi
 
+# 2) SageAttention
+# Use the same source-build path that has already worked in this RunPod H3 setup.
+# Do not use PyPI sageattention==2.2.0 here.
 if python -c "from sageattention import sageattn" >/dev/null 2>&1; then
     echo "OK: SageAttention already installed"
 else
     echo "Installing SageAttention from official source..."
-    apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cuda-libraries-dev-13-0 ninja-build git
+    SAGE_CAN_BUILD=1
 
-    rm -rf /workspace/SageAttention
-    git clone --depth 1 https://github.com/thu-ml/SageAttention.git /workspace/SageAttention
+    if ! apt-get update; then
+        echo "[ERROR] apt-get update failed; SageAttention build skipped."
+        SAGE_CAN_BUILD=0
+    elif ! DEBIAN_FRONTEND=noninteractive apt-get install -y cuda-libraries-dev-13-0 ninja-build git; then
+        echo "[ERROR] SageAttention build dependencies failed to install; build skipped."
+        SAGE_CAN_BUILD=0
+    fi
 
-    SAGE_ARCH="$(python - <<'PY2'
+    if [ "$SAGE_CAN_BUILD" -eq 1 ]; then
+        rm -rf /workspace/SageAttention
+
+        if git clone https://github.com/thu-ml/SageAttention.git /workspace/SageAttention; then
+            if SAGE_ARCH="$(python - <<'PY2'
 import torch
 major, minor = torch.cuda.get_device_capability()
 print(f"{major}.{minor}")
 PY2
-)"
-    echo "SageAttention CUDA arch: $SAGE_ARCH"
+)"; then
+                echo "SageAttention CUDA arch: $SAGE_ARCH"
 
-    cd /workspace/SageAttention
-    rm -rf build
-    export TORCH_CUDA_ARCH_LIST="$SAGE_ARCH"
-    export EXT_PARALLEL=4
-    export NVCC_APPEND_FLAGS="--threads 8"
-    export MAX_JOBS=8
-    python setup.py install
-    cd "$COMFYUI_DIR"
-
-    python -c "from sageattention import sageattn"
-    echo "OK: SageAttention installed"
+                if (
+                    cd /workspace/SageAttention
+                    rm -rf build
+                    export TORCH_CUDA_ARCH_LIST="$SAGE_ARCH"
+                    export EXT_PARALLEL=4
+                    export NVCC_APPEND_FLAGS="--threads 8"
+                    export MAX_JOBS=8
+                    python setup.py install
+                ) && python -c "from sageattention import sageattn" >/dev/null 2>&1; then
+                    echo "OK: SageAttention installed"
+                else
+                    echo "[ERROR] SageAttention source build failed. Continuing startup without SageAttention."
+                fi
+            else
+                echo "[ERROR] Could not detect GPU compute capability; SageAttention build skipped."
+            fi
+        else
+            echo "[ERROR] SageAttention source clone failed. Continuing startup without SageAttention."
+        fi
+    fi
 fi
 
-# 2) Spectrum + Sol-Attn
-clone_if_missing \
+# 3) Spectrum + Sol-Attn
+install_node \
   "ComfyUI-Spectrum-MiniMax-H3" \
-  "https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3.git"
+  "https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3.git" || true
 
-clone_if_missing \
+install_node \
   "ComfyUI-sol-attn" \
-  "https://github.com/Saganaki22/ComfyUI-sol-attn.git"
+  "https://github.com/Saganaki22/ComfyUI-sol-attn.git" || true
 
+# 4) Workflow JSONs
+# Download to /tmp, validate as JSON, then move into the ComfyUI workflow folder.
 RAW_BASE="https://raw.githubusercontent.com/shuichisaitofd/runpod-h3-mobile/main/workflows"
 
-curl -fsSL \
-  "$RAW_BASE/H3_TurboV4_SageAttention_4step.json" \
-  -o "$WORKFLOWS/H3_TurboV4_SageAttention_4step.json"
+install_workflow() {
+    local filename="$1"
+    local tmp="/tmp/${filename}.download"
+    local dest="$WORKFLOWS/$filename"
 
-curl -fsSL \
-  "$RAW_BASE/H3_Spectrum_SolAttn_16step.json" \
-  -o "$WORKFLOWS/H3_Spectrum_SolAttn_16step.json"
+    rm -f "$tmp"
+    if curl -fsSL "$RAW_BASE/$filename" -o "$tmp" && python -m json.tool "$tmp" >/dev/null 2>&1; then
+        mv "$tmp" "$dest"
+        echo "OK: workflow $filename installed"
+        return 0
+    fi
 
-echo "OK: 2 H3 workflows installed"
+    rm -f "$tmp"
+    echo "[ERROR] workflow $filename download/validation failed. Continuing startup."
+    return 1
+}
+
+install_workflow "H3_TurboV4_SageAttention_4step.json" || true
+install_workflow "H3_Spectrum_SolAttn_16step.json" || true
+
+echo "============================================="
+echo "  H3 mobile auto setup finished"
+echo "  Continuing official RunPod startup"
 echo "============================================="
 '''
 
 text = text.replace(marker, block + "\n" + marker, 1)
 p.write_text(text)
 PY
+then
+    echo "[ERROR] Could not patch RunPod /start.sh. Starting standard RunPod startup."
+    exec /start.sh
+fi
 
 exec bash "$TMP_START"
