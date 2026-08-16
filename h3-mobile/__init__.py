@@ -127,6 +127,12 @@ async def h3_mobile_copy_prompts_js(request): return web.FileResponse(WEB_DIR / 
 @routes.get("/h3-mobile/batch.js")
 async def h3_mobile_batch_js(request): return web.FileResponse(WEB_DIR / "batch.js")
 
+@routes.get("/h3-mobile/batch-v2.js")
+async def h3_mobile_batch_v2_js(request): return web.FileResponse(WEB_DIR / "batch-v2.js")
+
+@routes.get("/h3-mobile/history-autoplay.js")
+async def h3_mobile_history_autoplay_js(request): return web.FileResponse(WEB_DIR / "history-autoplay.js")
+
 @routes.get("/h3-mobile/styles.css")
 async def h3_mobile_css(request): return web.FileResponse(WEB_DIR / "styles.css")
 
