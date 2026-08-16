@@ -35,7 +35,6 @@ FROM ${RUNPOD_BASE}
 USER root
 
 ARG TURBO_COMMIT=4274783a23afcfdbea3b4876cb79effd6c510785
-ARG KJNODES_COMMIT=d19ce9078f03cc66a462efc082defd30aef16d02
 ARG SPECTRUM_COMMIT=6a3d14f89cc717abf9815f51d0a599080a3321a6
 ARG SOL_COMMIT=930a4d6e432ff8b8ed5e30ff2f72519b92d69bdf
 
@@ -54,23 +53,21 @@ assert version("sageattention") == "2.2.0", version("sageattention")
 print("Build validation OK:", torch.__version__, torch.version.cuda, version("sageattention"))
 PY
 
-# Pin the custom nodes that were verified on the working A6000 Pod.
+# Pin the H3-specific custom nodes that were verified on the working A6000 Pod.
+# KJNodes is intentionally kept from the digest-pinned RunPod base image. That
+# exact baked copy is already reproducible via RUNPOD_BASE, while the historical
+# local commit observed on the old Pod is no longer fetchable from upstream.
 RUN set -eux; \
     cd /opt/comfyui-baked/custom_nodes; \
+    test -d ComfyUI-KJNodes; \
+    echo "Using KJNodes baked into pinned RunPod base: $(git -C ComfyUI-KJNodes rev-parse HEAD 2>/dev/null || echo baked-copy)"; \
     rm -rf ComfyUI-MiniMax-H3-Turbo ComfyUI-Spectrum-MiniMax-H3 ComfyUI-sol-attn; \
     git clone https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo.git ComfyUI-MiniMax-H3-Turbo; \
     git -C ComfyUI-MiniMax-H3-Turbo checkout --detach "$TURBO_COMMIT"; \
     git clone https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3.git ComfyUI-Spectrum-MiniMax-H3; \
     git -C ComfyUI-Spectrum-MiniMax-H3 checkout --detach "$SPECTRUM_COMMIT"; \
     git clone https://github.com/Saganaki22/ComfyUI-sol-attn.git ComfyUI-sol-attn; \
-    git -C ComfyUI-sol-attn checkout --detach "$SOL_COMMIT"; \
-    if [ -d ComfyUI-KJNodes/.git ]; then \
-      git -C ComfyUI-KJNodes fetch origin "$KJNODES_COMMIT" || true; \
-      git -C ComfyUI-KJNodes checkout --detach -f "$KJNODES_COMMIT"; \
-    else \
-      git clone https://github.com/kijai/ComfyUI-KJNodes.git ComfyUI-KJNodes; \
-      git -C ComfyUI-KJNodes checkout --detach "$KJNODES_COMMIT"; \
-    fi
+    git -C ComfyUI-sol-attn checkout --detach "$SOL_COMMIT"
 
 # Install custom-node Python requirements at build time only.
 RUN set -eux; \
