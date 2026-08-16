@@ -1,9 +1,13 @@
 from pathlib import Path
 import asyncio
 import os
+import shutil
+import tempfile
+import zipfile
 
 import aiohttp
 from aiohttp import web
+import folder_paths
 from server import PromptServer
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -14,6 +18,7 @@ API_WORKFLOWS = {
 }
 COMFYUI_DIR = BASE_DIR.parent.parent
 MODELS_DIR = COMFYUI_DIR / "models"
+OUTPUT_DIR = Path(folder_paths.get_output_directory())
 
 HF_H3 = "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main"
 MODEL_SPECS = {
@@ -42,6 +47,23 @@ def _model_state_payload():
         state.update({"key": key, "label": spec["label"], "filename": path.name})
         result[key] = state
     return result
+
+
+def _container_uptime_seconds():
+    """Return elapsed seconds since container PID 1 started."""
+    try:
+        system_uptime = float(Path("/proc/uptime").read_text().split()[0])
+        fields = Path("/proc/1/stat").read_text().split()
+        start_ticks = int(fields[21])
+        hz = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+        return max(0, int(system_uptime - (start_ticks / hz)))
+    except Exception:
+        return None
+
+
+async def _delete_later(path, delay=3600):
+    await asyncio.sleep(delay)
+    shutil.rmtree(path, ignore_errors=True)
 
 
 async def _download_one(key):
@@ -97,6 +119,34 @@ async def h3_mobile_css(request): return web.FileResponse(WEB_DIR / "styles.css"
 
 @routes.get("/h3-mobile/health")
 async def h3_mobile_health(request): return web.json_response({"ok": True, "service": "h3-mobile"})
+
+@routes.get("/h3-mobile/api/runtime")
+async def h3_mobile_runtime(request):
+    seconds = _container_uptime_seconds()
+    return web.json_response({"ok": seconds is not None, "uptime_seconds": seconds})
+
+@routes.get("/h3-mobile/api/history/download-all")
+async def h3_mobile_download_all(request):
+    video_dir = OUTPUT_DIR / "video"
+    allowed = {".mp4", ".webm", ".mov", ".mkv", ".gif"}
+    files = []
+    if video_dir.is_dir():
+        files = sorted((p for p in video_dir.rglob("*") if p.is_file() and p.suffix.lower() in allowed), key=lambda p: p.stat().st_mtime)
+    if not files:
+        raise web.HTTPNotFound(text="ダウンロードできる動画がありません。")
+    temp_dir = Path(tempfile.mkdtemp(prefix="h3-mobile-zip-"))
+    zip_path = temp_dir / "h3-mobile-videos.zip"
+    try:
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
+            for path in files:
+                archive.write(path, arcname=str(path.relative_to(OUTPUT_DIR)))
+    except Exception:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
+    asyncio.create_task(_delete_later(temp_dir))
+    response = web.FileResponse(zip_path)
+    response.headers["Content-Disposition"] = 'attachment; filename="h3-mobile-videos.zip"'
+    return response
 
 @routes.get("/h3-mobile/api/workflow/{mode}")
 async def h3_mobile_workflow(request):
