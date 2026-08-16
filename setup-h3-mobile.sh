@@ -30,40 +30,95 @@ mkdir -p "$CUSTOM" "$WORKFLOWS" \
   "$MODELS/diffusion_models" "$MODELS/text_encoders" "$MODELS/vae" "$MODELS/loras"
 
 # ------------------------------------------------------------------
-# Runtime lock: working A6000 / SM86 environment
-#   PyTorch 2.10.0+cu130
-#   CUDA toolkit/compiler 13.0
-#   SageAttention 2.2.0
+# Host preflight
+# Known-good target: RTX A6000 / SM86, driver 580+, torch cu130.
+# NVIDIA CUDA 13.x requires driver branch 580 or newer.
+# Never replace torch with cu130 on an older RunPod host.
 # ------------------------------------------------------------------
+H3_CU130_HOST_OK=0
+H3_DRIVER_VERSION=""
+H3_DRIVER_MAJOR=0
+H3_GPU_NAME=""
 
-echo "[H3] Checking PyTorch runtime..."
-TORCH_RUNTIME="$(python3 - <<'PY2'
+if command -v nvidia-smi >/dev/null 2>&1; then
+    H3_DRIVER_VERSION="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n 1 | tr -d '[:space:]')"
+    H3_GPU_NAME="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n 1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    H3_DRIVER_MAJOR="${H3_DRIVER_VERSION%%.*}"
+fi
+
+case "$H3_DRIVER_MAJOR" in
+    ''|*[!0-9]*) H3_DRIVER_MAJOR=0 ;;
+esac
+
+echo "[H3] Host GPU: ${H3_GPU_NAME:-unknown}"
+echo "[H3] Host NVIDIA driver: ${H3_DRIVER_VERSION:-unknown}"
+
+if [ "$H3_DRIVER_MAJOR" -ge 580 ]; then
+    H3_CU130_HOST_OK=1
+    echo "OK: Host driver supports CUDA 13.x target runtime."
+else
+    echo "============================================================="
+    echo "[H3][HOST_INCOMPATIBLE] CUDA 13 target skipped."
+    echo "[H3][HOST_INCOMPATIBLE] NVIDIA driver 580+ is required."
+    echo "[H3][HOST_INCOMPATIBLE] Detected: ${H3_DRIVER_VERSION:-unknown}."
+    if [ "$H3_DRIVER_MAJOR" -gt 0 ] && [ "$H3_DRIVER_MAJOR" -lt 570 ]; then
+        echo "[H3][HOST_INCOMPATIBLE] Driver is also below the CUDA 12.8 base-image target range."
+    fi
+    echo "[H3][HOST_INCOMPATIBLE] Do NOT install H3 models on this Pod."
+    echo "[H3][HOST_INCOMPATIBLE] Terminate and redeploy until driver 580+ is assigned."
+    echo "============================================================="
+    printf '%s\n' \
+      "H3 target runtime not installed." \
+      "Required NVIDIA driver: 580+" \
+      "Detected NVIDIA driver: ${H3_DRIVER_VERSION:-unknown}" \
+      "Action: terminate this Pod and redeploy." \
+      > "$H3_ROOT/H3_HOST_INCOMPATIBLE.txt"
+fi
+
+# ------------------------------------------------------------------
+# Runtime lock
+# ------------------------------------------------------------------
+if [ "$H3_CU130_HOST_OK" -eq 1 ]; then
+    echo "[H3] Checking PyTorch runtime..."
+    TORCH_RUNTIME="$(python3 - <<'PY2'
 import torch
 print(torch.__version__)
 PY2
  2>/dev/null || true)"
 
-if [ "$TORCH_RUNTIME" != "2.10.0+cu130" ]; then
-    echo "[H3] Installing PyTorch 2.10.0+cu130..."
-    if ! PIP_CONSTRAINT= python3 -m pip install --upgrade --force-reinstall \
-        torch==2.10.0 \
-        torchvision==0.25.0 \
-        torchaudio==2.10.0 \
-        --index-url https://download.pytorch.org/whl/cu130; then
-        echo "[ERROR] PyTorch cu130 installation failed. Continuing startup, but H3 acceleration may not match the known-good runtime."
+    if [ "$TORCH_RUNTIME" != "2.10.0+cu130" ]; then
+        echo "[H3] Installing PyTorch 2.10.0+cu130..."
+        if ! PIP_CONSTRAINT= python3 -m pip install --upgrade --force-reinstall \
+            torch==2.10.0 \
+            torchvision==0.25.0 \
+            torchaudio==2.10.0 \
+            --index-url https://download.pytorch.org/whl/cu130; then
+            echo "[ERROR] PyTorch cu130 installation failed."
+            H3_CU130_HOST_OK=0
+        fi
+    else
+        echo "OK: PyTorch already $TORCH_RUNTIME"
     fi
-else
-    echo "OK: PyTorch already $TORCH_RUNTIME"
 fi
 
-python3 - <<'PY2' || true
+if [ "$H3_CU130_HOST_OK" -eq 1 ]; then
+    if python3 - <<'PY2'
 import torch
 print("[H3] Torch:", torch.__version__)
 print("[H3] Torch CUDA:", torch.version.cuda)
-if torch.cuda.is_available():
-    print("[H3] GPU:", torch.cuda.get_device_name(0))
-    print("[H3] Capability:", torch.cuda.get_device_capability(0))
+if not torch.cuda.is_available():
+    raise SystemExit(1)
+print("[H3] GPU:", torch.cuda.get_device_name(0))
+print("[H3] Capability:", torch.cuda.get_device_capability(0))
 PY2
+    then
+        echo "OK: CUDA runtime initialized successfully."
+        rm -f "$H3_ROOT/H3_HOST_INCOMPATIBLE.txt"
+    else
+        echo "[ERROR] CUDA 13 runtime could not initialize on this host."
+        H3_CU130_HOST_OK=0
+    fi
+fi
 
 install_node_pinned() {
     local name="$1"
@@ -118,86 +173,93 @@ install_node_pinned \
   "https://github.com/Saganaki22/ComfyUI-sol-attn.git" \
   "930a4d6e432ff8b8ed5e30ff2f72519b92d69bdf" || true
 
-SAGE_OK=0
-if python3 - <<'PY2' >/dev/null 2>&1
+# ------------------------------------------------------------------
+# SageAttention 2.2.0 - only on validated CUDA 13 host.
+# ------------------------------------------------------------------
+if [ "$H3_CU130_HOST_OK" -eq 1 ]; then
+    SAGE_OK=0
+    if python3 - <<'PY2' >/dev/null 2>&1
 from importlib.metadata import version
 from sageattention import sageattn
 raise SystemExit(0 if version("sageattention") == "2.2.0" else 1)
 PY2
-then
-    SAGE_OK=1
-    echo "OK: SageAttention 2.2.0 already installed"
-fi
-
-if [ "$SAGE_OK" -ne 1 ]; then
-    echo "[H3] Preparing CUDA 13.0 build environment for SageAttention 2.2.0..."
-    SAGE_CAN_BUILD=1
-
-    if ! apt-get update; then
-        echo "[ERROR] apt-get update failed; SageAttention build skipped."
-        SAGE_CAN_BUILD=0
-    elif ! DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        cuda-compiler-13-0 \
-        libcusparse-dev-13-0 \
-        libcublas-dev-13-0 \
-        libcusolver-dev-13-0 \
-        ninja-build \
-        git; then
-        echo "[ERROR] CUDA 13.0 development packages failed to install; SageAttention build skipped."
-        SAGE_CAN_BUILD=0
+    then
+        SAGE_OK=1
+        echo "OK: SageAttention 2.2.0 already installed"
     fi
 
-    if [ "$SAGE_CAN_BUILD" -eq 1 ]; then
-        export CUDA_HOME="/usr/local/cuda-13.0"
-        export PATH="$CUDA_HOME/bin:$PATH"
-        export LD_LIBRARY_PATH="$CUDA_HOME/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    if [ "$SAGE_OK" -ne 1 ]; then
+        echo "[H3] Preparing CUDA 13.0 build environment for SageAttention 2.2.0..."
+        SAGE_CAN_BUILD=1
 
-        if [ ! -x "$CUDA_HOME/bin/nvcc" ]; then
-            echo "[ERROR] nvcc not found at $CUDA_HOME/bin/nvcc; SageAttention build skipped."
+        if ! apt-get update; then
+            echo "[ERROR] apt-get update failed; SageAttention build skipped."
             SAGE_CAN_BUILD=0
-        else
-            echo "[H3] $($CUDA_HOME/bin/nvcc --version | tail -n 1)"
+        elif ! DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            cuda-compiler-13-0 \
+            libcusparse-dev-13-0 \
+            libcublas-dev-13-0 \
+            libcusolver-dev-13-0 \
+            ninja-build \
+            git; then
+            echo "[ERROR] CUDA 13.0 development packages failed to install; SageAttention build skipped."
+            SAGE_CAN_BUILD=0
         fi
-    fi
 
-    if [ "$SAGE_CAN_BUILD" -eq 1 ]; then
-        SAGE_SRC="$H3_ROOT/SageAttention"
-        rm -rf "$SAGE_SRC"
+        if [ "$SAGE_CAN_BUILD" -eq 1 ]; then
+            export CUDA_HOME="/usr/local/cuda-13.0"
+            export PATH="$CUDA_HOME/bin:$PATH"
+            export LD_LIBRARY_PATH="$CUDA_HOME/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
-        if git clone --depth 1 --branch v2.2.0 \
-            https://github.com/thu-ml/SageAttention.git "$SAGE_SRC"; then
+            if [ ! -x "$CUDA_HOME/bin/nvcc" ]; then
+                echo "[ERROR] nvcc not found at $CUDA_HOME/bin/nvcc; SageAttention build skipped."
+                SAGE_CAN_BUILD=0
+            else
+                echo "[H3] $($CUDA_HOME/bin/nvcc --version | tail -n 1)"
+            fi
+        fi
 
-            SAGE_ARCH="$(python3 - <<'PY2'
+        if [ "$SAGE_CAN_BUILD" -eq 1 ]; then
+            SAGE_SRC="$H3_ROOT/SageAttention"
+            rm -rf "$SAGE_SRC"
+
+            if git clone --depth 1 --branch v2.2.0 \
+                https://github.com/thu-ml/SageAttention.git "$SAGE_SRC"; then
+
+                SAGE_ARCH="$(python3 - <<'PY2'
 import torch
 major, minor = torch.cuda.get_device_capability(0)
 print(f"{major}.{minor}")
 PY2
  2>/dev/null || true)"
 
-            echo "[H3] SageAttention CUDA arch: ${SAGE_ARCH:-unknown}"
+                echo "[H3] SageAttention CUDA arch: ${SAGE_ARCH:-unknown}"
 
-            if [ -n "$SAGE_ARCH" ] && (
-                cd "$SAGE_SRC"
-                rm -rf build
-                export TORCH_CUDA_ARCH_LIST="$SAGE_ARCH"
-                export MAX_JOBS=1
-                PIP_CONSTRAINT= python3 -m pip install . --no-build-isolation
-            ) && (
-                cd "$COMFYUI_DIR"
-                python3 - <<'PY2'
+                if [ -n "$SAGE_ARCH" ] && (
+                    cd "$SAGE_SRC"
+                    rm -rf build
+                    export TORCH_CUDA_ARCH_LIST="$SAGE_ARCH"
+                    export MAX_JOBS=1
+                    PIP_CONSTRAINT= python3 -m pip install . --no-build-isolation
+                ) && (
+                    cd "$COMFYUI_DIR"
+                    python3 - <<'PY2'
 from importlib.metadata import version
 from sageattention import sageattn
 print("OK: SageAttention", version("sageattention"))
 PY2
-            ); then
-                echo "OK: SageAttention 2.2.0 installed"
+                ); then
+                    echo "OK: SageAttention 2.2.0 installed"
+                else
+                    echo "[ERROR] SageAttention 2.2.0 source build/import failed. Continuing startup without Sage acceleration."
+                fi
             else
-                echo "[ERROR] SageAttention 2.2.0 source build/import failed. Continuing startup without Sage acceleration."
+                echo "[ERROR] SageAttention v2.2.0 clone failed."
             fi
-        else
-            echo "[ERROR] SageAttention v2.2.0 clone failed."
         fi
     fi
+else
+    echo "[H3] SageAttention build skipped because this host did not pass the CUDA 13 driver preflight."
 fi
 
 echo "H3 model auto-download: disabled (manual/on-demand mode)"
@@ -256,16 +318,22 @@ install_workflow() {
     return 1
 }
 
-# Frontend workflows are installed for PC ComfyUI use.
-# H3 Mobile uses the API workflows above as the execution source of truth.
 install_workflow "H3_TurboV4_SageAttention_4step.json" || true
 install_workflow "H3_Spectrum_SolAttn_16step.json" || true
 
 echo "============================================="
-echo "  H3 mobile reproducible setup finished"
-echo "  Expected runtime: torch 2.10.0+cu130"
-echo "  I2V: Turbo v4 + SageAttention 2.2.0"
-echo "  Ref2VA: Spectrum + Sol-Attn"
+if [ "$H3_CU130_HOST_OK" -eq 1 ]; then
+    echo "  H3 mobile reproducible setup finished"
+    echo "  Host driver: ${H3_DRIVER_VERSION:-unknown} (CUDA 13 target OK)"
+    echo "  Expected runtime: torch 2.10.0+cu130"
+    echo "  I2V: Turbo v4 + SageAttention 2.2.0"
+    echo "  Ref2VA: Spectrum + Sol-Attn"
+else
+    echo "  H3 setup installed UI/workflows only"
+    echo "  HOST INCOMPATIBLE WITH CUDA 13 TARGET"
+    echo "  Driver: ${H3_DRIVER_VERSION:-unknown}; required: 580+"
+    echo "  Terminate/redeploy before downloading H3 models"
+fi
 echo "  H3 mobile URL: /h3-mobile"
 echo "  Continuing official RunPod startup"
 echo "============================================="
