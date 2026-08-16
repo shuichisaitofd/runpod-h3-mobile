@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import datetime, timezone
+from urllib.parse import quote
 import asyncio
 import hashlib
 import os
@@ -60,13 +61,14 @@ async def h3_mobile_input_images(request):
                 continue
             try:
                 rel = path.relative_to(INPUT_DIR)
+                subfolder = str(rel.parent) if str(rel.parent) != "." else ""
                 stat = path.stat()
                 items.append({
                     "filename": path.name,
-                    "subfolder": str(rel.parent) if str(rel.parent) != "." else "",
+                    "subfolder": subfolder,
                     "size": stat.st_size,
                     "mtime": stat.st_mtime,
-                    "url": f"/view?filename={web.quote(path.name)}&subfolder={web.quote(str(rel.parent) if str(rel.parent) != '.' else '')}&type=input",
+                    "url": f"/view?filename={quote(path.name)}&subfolder={quote(subfolder)}&type=input",
                 })
             except Exception:
                 continue
