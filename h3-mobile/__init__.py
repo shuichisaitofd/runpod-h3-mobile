@@ -50,7 +50,6 @@ def _model_state_payload():
 
 
 def _container_uptime_seconds():
-    """Return elapsed seconds since container PID 1 started."""
     try:
         system_uptime = float(Path("/proc/uptime").read_text().split()[0])
         fields = Path("/proc/1/stat").read_text().split()
@@ -116,6 +115,9 @@ async def h3_mobile_js(request): return web.FileResponse(WEB_DIR / "app.js")
 
 @routes.get("/h3-mobile/copy-prompts.js")
 async def h3_mobile_copy_prompts_js(request): return web.FileResponse(WEB_DIR / "copy-prompts.js")
+
+@routes.get("/h3-mobile/batch.js")
+async def h3_mobile_batch_js(request): return web.FileResponse(WEB_DIR / "batch.js")
 
 @routes.get("/h3-mobile/styles.css")
 async def h3_mobile_css(request): return web.FileResponse(WEB_DIR / "styles.css")
