@@ -88,6 +88,7 @@ RUN mkdir -p \
     /opt/comfyui-baked/user/default/workflows
 
 COPY h3-mobile/__init__.py /opt/comfyui-baked/custom_nodes/ComfyUI-H3-Mobile/__init__.py
+COPY h3-mobile/extra_routes.py /opt/comfyui-baked/custom_nodes/ComfyUI-H3-Mobile/extra_routes.py
 COPY h3-mobile/web/ /opt/comfyui-baked/custom_nodes/ComfyUI-H3-Mobile/web/
 COPY h3-mobile/api_workflows/ /opt/comfyui-baked/custom_nodes/ComfyUI-H3-Mobile/api_workflows/
 COPY workflows/ /opt/comfyui-baked/user/default/workflows/
