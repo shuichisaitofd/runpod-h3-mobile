@@ -9,7 +9,7 @@
 <body>
 <div class="app">
 <header class="header">
-<div class="row"><div class="brand">H3 Mobile</div><div class="status" id="status">接続確認中</div></div>
+<div class="row"><div class="brand">H3 Mobile</div><div class="runtime" id="runtime">起動時間 --:--:--</div><div class="status" id="status">接続確認中</div></div>
 <div class="project-tabs" id="tabs"><button class="pill active">案件A</button><button class="pill">案件B</button><button class="pill">案件C</button><button class="pill" id="add">＋追加</button></div>
 </header>
 <main>
@@ -27,7 +27,7 @@
 <div class="card"><div class="actions"><button class="secondary" id="dup">複製</button><button class="primary" id="gen">ComfyUIで生成</button></div></div>
 </section>
 <section class="page" data-page="running"><div class="card"><div class="row"><h2 style="margin:0;flex:1">実行中</h2><button class="secondary" id="refreshQueue">更新</button></div><div id="queue"></div></div></section>
-<section class="page" data-page="history"><div class="card"><div class="row"><h2 style="margin:0;flex:1">履歴</h2><button class="secondary" id="refreshHistory">更新</button></div><div id="historyList"></div></div></section>
+<section class="page" data-page="history"><div class="card"><div class="history-head"><h2>履歴</h2><div class="history-tools"><div class="view-toggle"><button class="secondary active" id="historyListMode">リスト</button><button class="secondary" id="historyLargeMode">大サムネ</button></div><button class="secondary" id="downloadAll">一括ダウンロード</button><button class="secondary" id="refreshHistory">更新</button></div></div><div id="downloadMessage" class="small"></div><div id="historyList"></div></div></section>
 <section class="page" data-page="settings">
 <div class="card"><h2>モデル管理</h2><div class="small">必要なモデルだけRunPodへ直接ダウンロードします。</div><div class="model-actions"><button class="primary" id="prepareRef">Ref2VAを準備</button><button class="primary" id="prepareI2V">I2Vを準備</button></div><div id="modelMessage" class="notice hidden"></div><div id="modelList" class="model-list"><div class="small">モデル状態を確認中...</div></div></div>
 <div class="card"><h2>接続</h2><div class="small">このページはComfyUIと同じ8188上で動作するため、ComfyUI URLの入力は不要です。</div><label>API workflow</label><div id="workflowStatus" class="notice">確認中</div></div>
@@ -35,5 +35,6 @@
 </main>
 </div>
 <nav class="bottom"><div class="bottomin"><button class="nav active" data-target="create">作成</button><button class="nav" data-target="running">実行中</button><button class="nav" data-target="history">履歴</button><button class="nav" data-target="settings">設定</button></div></nav>
+<div class="media-modal hidden" id="mediaModal" role="dialog" aria-modal="true"><button class="modal-close" id="modalClose" aria-label="閉じる">×</button><div class="modal-body" id="modalBody"></div></div>
 <script src="/h3-mobile/app.js"></script>
 </body></html>
