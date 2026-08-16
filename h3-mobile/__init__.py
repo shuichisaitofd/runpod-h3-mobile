@@ -8,54 +8,25 @@ from server import PromptServer
 
 BASE_DIR = Path(__file__).resolve().parent
 WEB_DIR = BASE_DIR / "web"
-API_WORKFLOW = BASE_DIR / "api_workflows" / "ref2va.json"
+API_WORKFLOWS = {
+    "i2v": BASE_DIR / "api_workflows" / "i2v.json",
+    "ref2va": BASE_DIR / "api_workflows" / "ref2va.json",
+}
 COMFYUI_DIR = BASE_DIR.parent.parent
 MODELS_DIR = COMFYUI_DIR / "models"
 
 HF_H3 = "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main"
 MODEL_SPECS = {
-    "ref2va": {
-        "label": "MiniMax H3 Ref2VA INT8",
-        "url": f"{HF_H3}/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors",
-        "path": MODELS_DIR / "diffusion_models" / "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
-    },
-    "fl2va": {
-        "label": "MiniMax H3 FL2VA INT8",
-        "url": f"{HF_H3}/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors",
-        "path": MODELS_DIR / "diffusion_models" / "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
-    },
-    "qwen": {
-        "label": "Qwen3-VL 32B MiniMax H3 NVFP4 AWQ",
-        "url": f"{HF_H3}/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
-        "path": MODELS_DIR / "text_encoders" / "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
-    },
-    "video_vae": {
-        "label": "MiniMax H3 video VAE FP16",
-        "url": f"{HF_H3}/vae/minimax_h3_video_vae_fp16.safetensors",
-        "path": MODELS_DIR / "vae" / "minimax_h3_video_vae_fp16.safetensors",
-    },
-    "audio_vae": {
-        "label": "MiniMax H3 audio VAE FP32",
-        "url": f"{HF_H3}/vae/minimax_h3_audio_vae_fp32.safetensors",
-        "path": MODELS_DIR / "vae" / "minimax_h3_audio_vae_fp32.safetensors",
-    },
-    "turbo_lora": {
-        "label": "MiniMax H3 Turbo LoRA v4 step600 EMA",
-        "url": "https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora/resolve/main/minimax_h3_turbo_v4_step600_ema.safetensors",
-        "path": MODELS_DIR / "loras" / "minimax_h3_turbo_v4_step600_ema.safetensors",
-    },
+    "ref2va": {"label": "MiniMax H3 Ref2VA INT8", "url": f"{HF_H3}/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors", "path": MODELS_DIR / "diffusion_models" / "minimax_h3_ref2va_pruned_int8_convrot.safetensors"},
+    "fl2va": {"label": "MiniMax H3 FL2VA INT8", "url": f"{HF_H3}/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors", "path": MODELS_DIR / "diffusion_models" / "minimax_h3_fl2va_pruned_int8_convrot.safetensors"},
+    "qwen": {"label": "Qwen3-VL 32B MiniMax H3 NVFP4 AWQ", "url": f"{HF_H3}/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", "path": MODELS_DIR / "text_encoders" / "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"},
+    "video_vae": {"label": "MiniMax H3 video VAE FP16", "url": f"{HF_H3}/vae/minimax_h3_video_vae_fp16.safetensors", "path": MODELS_DIR / "vae" / "minimax_h3_video_vae_fp16.safetensors"},
+    "audio_vae": {"label": "MiniMax H3 audio VAE FP32", "url": f"{HF_H3}/vae/minimax_h3_audio_vae_fp32.safetensors", "path": MODELS_DIR / "vae" / "minimax_h3_audio_vae_fp32.safetensors"},
+    "turbo_lora": {"label": "MiniMax H3 Turbo LoRA v4 step600 EMA", "url": "https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora/resolve/main/minimax_h3_turbo_v4_step600_ema.safetensors", "path": MODELS_DIR / "loras" / "minimax_h3_turbo_v4_step600_ema.safetensors"},
 }
-MODE_SETS = {
-    "ref2va": ["ref2va", "qwen", "video_vae", "audio_vae"],
-    "i2v": ["fl2va", "qwen", "video_vae", "audio_vae", "turbo_lora"],
-}
-
+MODE_SETS = {"ref2va": ["ref2va", "qwen", "video_vae", "audio_vae"], "i2v": ["fl2va", "qwen", "video_vae", "audio_vae", "turbo_lora"]}
 _download_tasks = {}
-_download_state = {
-    key: {"status": "installed" if spec["path"].is_file() else "missing", "downloaded": 0, "total": None, "error": None}
-    for key, spec in MODEL_SPECS.items()
-}
-
+_download_state = {key: {"status": "installed" if spec["path"].is_file() else "missing", "downloaded": 0, "total": None, "error": None} for key, spec in MODEL_SPECS.items()}
 routes = PromptServer.instance.routes
 
 
@@ -81,26 +52,20 @@ async def _download_one(key):
     if dest.is_file() and dest.stat().st_size > 0:
         _download_state[key].update(status="installed", downloaded=dest.stat().st_size, total=dest.stat().st_size, error=None)
         return
-
     state = _download_state[key]
     state.update(status="downloading", error=None)
     existing = tmp.stat().st_size if tmp.is_file() else 0
     headers = {"Range": f"bytes={existing}-"} if existing else {}
     timeout = aiohttp.ClientTimeout(total=None, connect=60, sock_read=180)
-
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(spec["url"], headers=headers, allow_redirects=True) as response:
                 if response.status not in (200, 206):
                     raise RuntimeError(f"HTTP {response.status}")
-
                 if existing and response.status == 200:
                     existing = 0
-                    try:
-                        tmp.unlink()
-                    except FileNotFoundError:
-                        pass
-
+                    try: tmp.unlink()
+                    except FileNotFoundError: pass
                 content_length = response.content_length
                 total = (existing + content_length) if content_length is not None else None
                 state.update(downloaded=existing, total=total)
@@ -109,7 +74,6 @@ async def _download_one(key):
                     async for chunk in response.content.iter_chunked(8 * 1024 * 1024):
                         f.write(chunk)
                         state["downloaded"] += len(chunk)
-
         os.replace(tmp, dest)
         size = dest.stat().st_size
         state.update(status="installed", downloaded=size, total=size, error=None)
@@ -123,36 +87,29 @@ async def _download_one(key):
 
 
 @routes.get("/h3-mobile")
-async def h3_mobile_index(request):
-    return web.FileResponse(WEB_DIR / "index.html")
-
+async def h3_mobile_index(request): return web.FileResponse(WEB_DIR / "index.html")
 
 @routes.get("/h3-mobile/app.js")
-async def h3_mobile_js(request):
-    return web.FileResponse(WEB_DIR / "app.js")
-
+async def h3_mobile_js(request): return web.FileResponse(WEB_DIR / "app.js")
 
 @routes.get("/h3-mobile/styles.css")
-async def h3_mobile_css(request):
-    return web.FileResponse(WEB_DIR / "styles.css")
-
+async def h3_mobile_css(request): return web.FileResponse(WEB_DIR / "styles.css")
 
 @routes.get("/h3-mobile/health")
-async def h3_mobile_health(request):
-    return web.json_response({"ok": True, "service": "h3-mobile"})
+async def h3_mobile_health(request): return web.json_response({"ok": True, "service": "h3-mobile"})
 
-
-@routes.get("/h3-mobile/api/ref2va-workflow")
-async def h3_mobile_ref2va_workflow(request):
-    if not API_WORKFLOW.is_file():
-        raise web.HTTPNotFound(text="Ref2VA API workflow is not installed yet")
-    return web.FileResponse(API_WORKFLOW)
-
+@routes.get("/h3-mobile/api/workflow/{mode}")
+async def h3_mobile_workflow(request):
+    mode = request.match_info["mode"]
+    path = API_WORKFLOWS.get(mode)
+    if path is None:
+        raise web.HTTPBadRequest(text="mode must be i2v or ref2va")
+    if not path.is_file():
+        raise web.HTTPNotFound(text=f"{mode} API workflow is not installed yet")
+    return web.FileResponse(path)
 
 @routes.get("/h3-mobile/api/models")
-async def h3_mobile_model_status(request):
-    return web.json_response({"models": _model_state_payload(), "sets": MODE_SETS})
-
+async def h3_mobile_model_status(request): return web.json_response({"models": _model_state_payload(), "sets": MODE_SETS})
 
 @routes.post("/h3-mobile/api/models/prepare")
 async def h3_mobile_prepare_models(request):
@@ -160,26 +117,19 @@ async def h3_mobile_prepare_models(request):
     mode = body.get("mode")
     if mode not in MODE_SETS:
         raise web.HTTPBadRequest(text="mode must be ref2va or i2v")
-
-    started = []
-    skipped = []
+    started, skipped = [], []
     for key in MODE_SETS[mode]:
         spec = MODEL_SPECS[key]
         if spec["path"].is_file() and spec["path"].stat().st_size > 0:
-            skipped.append(key)
-            continue
+            skipped.append(key); continue
         task = _download_tasks.get(key)
         if task and not task.done():
-            skipped.append(key)
-            continue
+            skipped.append(key); continue
         _download_state[key].update(status="queued", error=None)
         _download_tasks[key] = asyncio.create_task(_download_one(key))
         started.append(key)
-
     return web.json_response({"ok": True, "mode": mode, "started": started, "skipped": skipped})
-
 
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
-
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
