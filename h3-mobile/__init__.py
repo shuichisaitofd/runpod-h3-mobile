@@ -199,6 +199,8 @@ async def h3_mobile_prepare_models(request):
         started.append(key)
     return web.json_response({"ok": True, "mode": mode, "started": started, "skipped": skipped})
 
+from . import extra_routes  # register additional H3 Mobile endpoints
+
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
