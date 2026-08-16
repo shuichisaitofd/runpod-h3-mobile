@@ -107,6 +107,14 @@ async def _download_one(key):
         _download_tasks.pop(key, None)
 
 
+@routes.get("/h3")
+async def h3_short_url(request):
+    raise web.HTTPFound("/h3-mobile")
+
+@routes.get("/h3/")
+async def h3_short_url_slash(request):
+    raise web.HTTPFound("/h3-mobile")
+
 @routes.get("/h3-mobile")
 async def h3_mobile_index(request): return web.FileResponse(WEB_DIR / "index.html")
 
