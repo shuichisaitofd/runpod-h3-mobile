@@ -1,0 +1,19 @@
+(()=>{
+const KEY='h3MobilePromptLibraryV1';
+const MAX=30;
+let target=null;
+const q=s=>document.querySelector(s);
+const esc=v=>String(v??'').replace(/[&<>'\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','\"':'&quot;'}[c]));
+function load(){try{return JSON.parse(localStorage.getItem(KEY)||'[]');}catch{return [];}}
+function save(items){localStorage.setItem(KEY,JSON.stringify(items.slice(0,MAX)));}
+function addPrompt(text){text=String(text||'').trim();if(!text){alert('保存するプロンプトがありません');return;}const name=prompt('保存名','プロンプト '+(load().length+1));if(!name)return;const items=load();items.unshift({id:crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random(),name:name.trim()||'無題',text,created:Date.now()});save(items);alert('プロンプトを保存しました');}
+function removePrompt(id){save(load().filter(x=>x.id!==id));render();}
+function usePrompt(item){if(!target)return;target.value=item.text;target.dispatchEvent(new Event('input',{bubbles:true}));close();}
+function close(){q('#h3promptmodal')?.remove();}
+function css(){if(q('#h3promptcss'))return;const s=document.createElement('style');s.id='h3promptcss';s.textContent='.h3prompt-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.h3prompt-modal{position:fixed;inset:0;background:#000c;z-index:90;padding:18px;overflow:auto}.h3prompt-box{max-width:760px;margin:5vh auto;background:#171a21;border:1px solid #2b3240;border-radius:16px;padding:14px}.h3prompt-list{display:grid;gap:9px;margin-top:12px}.h3prompt-item{background:#11151c;border:1px solid #2b3240;border-radius:12px;padding:10px}.h3prompt-item .name{font-weight:700;margin-bottom:6px}.h3prompt-item .text{font-size:12px;line-height:1.55;white-space:pre-wrap;max-height:120px;overflow:auto;color:#cbd2df}.h3prompt-item .actions{display:flex;gap:8px;margin-top:8px}.h3prompt-item button{flex:1;padding:8px}.h3prompt-count{margin-left:auto}';document.head.appendChild(s);}
+function render(){const root=q('#h3promptlist');if(!root)return;const items=load();q('#h3promptcount').textContent=`${items.length} / ${MAX}`;root.innerHTML=items.length?'':'<div class="small">保存済みプロンプトはありません。</div>';for(const item of items){const d=document.createElement('div');d.className='h3prompt-item';d.innerHTML=`<div class="name">${esc(item.name)}</div><div class="text">${esc(item.text)}</div><div class="actions"><button class="secondary use">使う</button><button class="secondary del">削除</button></div>`;d.querySelector('.use').onclick=()=>usePrompt(item);d.querySelector('.del').onclick=()=>removePrompt(item.id);root.appendChild(d);}}
+function open(textarea){target=textarea;css();close();const m=document.createElement('div');m.id='h3promptmodal';m.className='h3prompt-modal';m.innerHTML='<div class="h3prompt-box"><div class="row"><b style="flex:1">保存済みプロンプト</b><span class="small h3prompt-count" id="h3promptcount"></span><button class="secondary" id="h3promptclose">閉じる</button></div><div class="h3prompt-list" id="h3promptlist"></div></div>';document.body.appendChild(m);q('#h3promptclose').onclick=close;m.onclick=e=>{if(e.target===m)close();};render();}
+function addControls(textarea){if(!textarea||textarea.dataset.promptLibReady)return;textarea.dataset.promptLibReady='1';const wrap=document.createElement('div');wrap.className='h3prompt-actions';const saveBtn=document.createElement('button');saveBtn.type='button';saveBtn.className='secondary compact';saveBtn.textContent='プロンプトを保存';saveBtn.onclick=()=>addPrompt(textarea.value);const openBtn=document.createElement('button');openBtn.type='button';openBtn.className='secondary compact';openBtn.textContent='保存済みから選ぶ';openBtn.onclick=()=>open(textarea);wrap.append(saveBtn,openBtn);textarea.insertAdjacentElement('afterend',wrap);}
+function init(){css();addControls(q('#prompt'));addControls(q('#batchPrompt'));}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
+})();
