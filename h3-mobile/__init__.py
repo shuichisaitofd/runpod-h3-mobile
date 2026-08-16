@@ -114,6 +114,9 @@ async def h3_mobile_index(request): return web.FileResponse(WEB_DIR / "index.htm
 @routes.get("/h3-mobile/app.js")
 async def h3_mobile_js(request): return web.FileResponse(WEB_DIR / "app.js")
 
+@routes.get("/h3-mobile/copy-prompts.js")
+async def h3_mobile_copy_prompts_js(request): return web.FileResponse(WEB_DIR / "copy-prompts.js")
+
 @routes.get("/h3-mobile/styles.css")
 async def h3_mobile_css(request): return web.FileResponse(WEB_DIR / "styles.css")
 
