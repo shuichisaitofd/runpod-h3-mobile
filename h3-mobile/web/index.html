@@ -21,7 +21,7 @@
 <div id="ref" class="hidden"><label>参照画像1</label><div class="filebox"><input id="ref0" type="file" accept="image/*"></div><label>参照画像2</label><div class="filebox"><input id="ref1" type="file" accept="image/*"></div></div>
 <label>プロンプト</label><textarea id="prompt"></textarea></div>
 <div class="card"><h2>生成設定</h2><div class="grid2"><div><label>秒数</label><input id="sec" type="number" value="10" min="1" step="1" inputmode="numeric"></div><div id="stepsWrap" class="hidden"><label>Steps</label><input id="steps" type="number" value="12" min="1" max="50"></div></div>
-<label>画面比率</label><select id="ratio"><option selected>元画像と同じ</option><option>2:3</option><option>3:2</option><option>9:16</option><option>16:9</option><option>1:1</option><option>4:3</option><option>3:4</option></select>
+<div class="grid2"><div><label>解像度（MP）</label><input id="mp" type="number" value="0.5" min="0.1" max="2" step="0.05" inputmode="decimal"></div><div><label>画面比率</label><select id="ratio"><option selected>元画像と同じ</option><option>2:3</option><option>3:2</option><option>9:16</option><option>16:9</option><option>1:1</option><option>4:3</option><option>3:4</option></select></div></div>
 <div id="refextra" class="hidden"><label>ref_image_size</label><select id="refSize"><option>match</option><option selected>max</option></select><label>Seed</label><input id="seed" type="number" value="-1"></div>
 <div id="modeNote" class="small" style="margin-top:10px"></div></div>
 <div class="card"><div class="actions"><button class="secondary" id="dup">複製</button><button class="primary" id="gen">ComfyUIで生成</button></div></div>
