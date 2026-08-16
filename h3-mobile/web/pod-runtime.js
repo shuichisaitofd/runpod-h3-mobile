@@ -2,9 +2,8 @@
   const el=document.querySelector('#runtime');
   if(!el) return;
 
-  // app.js still contains the legacy container-uptime timer. Stop it here so
-  // this file is the single owner of the runtime display without rewriting the
-  // large app.js bundle just for the migration.
+  // app.js contains an older container-uptime timer. Stop it immediately so
+  // the header is owned only by the RunPod lastStartedAt based clock below.
   function disableLegacyRuntime(){
     try{
       if(typeof state!=='undefined'&&state?.runtimeTimer){
@@ -15,6 +14,35 @@
     }catch{}
   }
   disableLegacyRuntime();
+
+  // ComfyUI stores /prompt extra_data inside history item.prompt[3].
+  // Normalize that shape for the existing history renderer so prompt/settings
+  // are restored for both single and batch H3 Mobile jobs.
+  function installHistoryMetadataCompat(){
+    const previousFetch=window.fetch.bind(window);
+    window.fetch=async(input,init)=>{
+      const r=await previousFetch(input,init);
+      try{
+        const url=typeof input==='string'?input:(input&&input.url)||'';
+        if(!/\/history(?:\/|$|\?)/.test(url)||!r.ok)return r;
+        const data=await r.clone().json();
+        let changed=false;
+        for(const item of Object.values(data||{})){
+          if(!item||typeof item!=='object')continue;
+          const h3=item?.prompt?.[3]?.h3_mobile||item?.prompt?.[3]?.extra_data?.h3_mobile||item?.prompt?.extra_data?.h3_mobile||item?.extra_data?.h3_mobile;
+          if(!h3)continue;
+          item.extra_data=item.extra_data||{};
+          if(!item.extra_data.h3_mobile){item.extra_data.h3_mobile=h3;changed=true;}
+        }
+        if(!changed)return r;
+        const headers=new Headers(r.headers);
+        headers.delete('content-length');
+        return new Response(JSON.stringify(data),{status:r.status,statusText:r.statusText,headers});
+      }catch{return r;}
+    };
+    setTimeout(()=>{try{if(typeof loadHistory==='function')loadHistory();}catch{}},0);
+  }
+  installHistoryMetadataCompat();
 
   let startedAtMs=null;
   let fallbackBaseSeconds=null;
@@ -42,8 +70,8 @@
 
   function ensureTimer(){
     if(timer) return;
-    // setInterval自体を時計として使わず、毎回 Date.now() から再計算する。
-    // Safariがバックグラウンドでタイマーを間引いても累積誤差しない。
+    // Recalculate from Date.now() so Safari background throttling cannot
+    // accumulate timer drift.
     timer=setInterval(render,1000);
   }
 
