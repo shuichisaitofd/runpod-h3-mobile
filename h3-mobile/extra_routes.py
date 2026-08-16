@@ -118,3 +118,8 @@ async def h3_mobile_history_thumbnails_js(request):
 @routes.get("/h3-mobile/pod-runtime.js")
 async def h3_mobile_pod_runtime_js(request):
     return web.FileResponse(WEB_DIR / "pod-runtime.js")
+
+
+@routes.get("/h3-mobile/prompt-library.js")
+async def h3_mobile_prompt_library_js(request):
+    return web.FileResponse(WEB_DIR / "prompt-library.js")
