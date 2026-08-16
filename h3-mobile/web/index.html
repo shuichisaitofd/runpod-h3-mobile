@@ -56,9 +56,18 @@
 <div class="media-modal hidden" id="mediaModal" role="dialog" aria-modal="true"><button class="modal-close" id="modalClose" aria-label="閉じる">×</button><div class="modal-body" id="modalBody"></div></div>
 <script src="/h3-mobile/app.js"></script>
 <script src="/h3-mobile/copy-prompts.js"></script>
+<script>
+// Some ComfyUI builds expose completed outputs before status.completed/messages are finalized.
+// Treat a history entry with output files as terminal so batch timers do not run forever.
+(()=>{const originalFetch=window.fetch.bind(window);window.fetch=async(input,init)=>{const r=await originalFetch(input,init);try{const url=typeof input==='string'?input:(input&&input.url)||'';if(!/\/history\//.test(url)||!r.ok)return r;const clone=r.clone();const data=await clone.json();let changed=false;for(const item of Object.values(data||{})){if(!item||item.status?.completed===true)continue;const outputs=item.outputs||{};const hasOutput=Object.values(outputs).some(node=>['videos','images','gifs','files','audio'].some(k=>Array.isArray(node?.[k])&&node[k].length));if(hasOutput){item.status=item.status||{};item.status.completed=true;changed=true;}}if(!changed)return r;return new Response(JSON.stringify(data),{status:r.status,statusText:r.statusText,headers:r.headers});}catch{return r;}};})();
+</script>
 <script src="/h3-mobile/batch-v2.js"></script>
 <script src="/h3-mobile/history-autoplay.js"></script>
 <script src="/h3-mobile/history-thumbnails.js"></script>
 <script src="/h3-mobile/media-library.js"></script>
 <script src="/h3-mobile/pod-runtime.js"></script>
+<script>
+// Stop single-job timers when ComfyUI history reports completion, and freeze the final generation time.
+(()=>{function setStatus(card,text){if(!card)return;const spans=[...card.querySelectorAll('.meta span')];const status=spans.find(x=>/^(準備中|待機中|実行中|完了|失敗)$/.test((x.textContent||'').trim()));if(status)status.textContent=text;}function terminal(item){const msgs=item?.status?.messages;if(Array.isArray(msgs)){for(const m of msgs){if(Array.isArray(m)&&['execution_success','execution_error','execution_interrupted'].includes(m[0]))return m[0];}}if(item?.status?.completed===true)return 'execution_success';const outputs=item?.outputs||{};const hasOutput=Object.values(outputs).some(node=>['videos','images','gifs','files','audio'].some(k=>Array.isArray(node?.[k])&&node[k].length));return hasOutput?'execution_success':null;}function secondsFrom(item,fallback){if(typeof historyExecutionSeconds==='function'){const s=historyExecutionSeconds(item);if(s!=null)return s;}return fallback;}async function tick(){if(typeof state==='undefined'||!state.jobs)return;for(const [id,job] of state.jobs){if(!job||job.done)continue;setStatus(job.card,'実行中');try{const r=await fetch('/history/'+encodeURIComponent(id));if(!r.ok)continue;const data=await r.json();const item=data?.[id]||Object.values(data||{})[0];if(!item)continue;const t=terminal(item);if(!t)continue;job.done=true;const fallback=Math.max(0,(Date.now()-job.startedAt)/1000);const sec=secondsFrom(item,fallback);const el=job.card?.querySelector('.elapsed');if(t==='execution_success'){setStatus(job.card,'完了');if(el)el.textContent='生成 '+formatDuration(sec);}else{setStatus(job.card,'失敗');if(el)el.textContent='停止 '+formatDuration(sec);}}catch{}}}setInterval(tick,2000);})();
+</script>
 </body></html>
