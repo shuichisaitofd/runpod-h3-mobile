@@ -2,6 +2,20 @@
   const el=document.querySelector('#runtime');
   if(!el) return;
 
+  // app.js still contains the legacy container-uptime timer. Stop it here so
+  // this file is the single owner of the runtime display without rewriting the
+  // large app.js bundle just for the migration.
+  function disableLegacyRuntime(){
+    try{
+      if(typeof state!=='undefined'&&state?.runtimeTimer){
+        clearInterval(state.runtimeTimer);
+        state.runtimeTimer=null;
+        state.runtimeSeconds=null;
+      }
+    }catch{}
+  }
+  disableLegacyRuntime();
+
   let startedAtMs=null;
   let fallbackBaseSeconds=null;
   let fallbackBaseNow=null;
@@ -20,6 +34,7 @@
   }
 
   function render(){
+    disableLegacyRuntime();
     const sec=currentSeconds();
     if(sec==null){el.textContent='Pod --:--:--';return;}
     el.textContent=`Pod ${fmt(sec)}`;
@@ -33,6 +48,7 @@
   }
 
   async function sync(){
+    disableLegacyRuntime();
     try{
       const r=await fetch('/h3-mobile/api/pod-runtime',{cache:'no-store'});
       const j=await r.json();
@@ -52,6 +68,7 @@
       }
     }catch{}
     render();
+    ensureTimer();
   }
 
   sync();
