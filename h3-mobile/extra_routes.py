@@ -95,7 +95,7 @@ async def h3_mobile_thumbnail(request):
         proc = await asyncio.create_subprocess_exec(
             ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
             "-ss", "0.10", "-i", str(src), "-frames:v", "1",
-            "-vf", "scale='min(640,iw)':-2", "-q:v", "3", str(dest),
+            "-vf", "scale=640:-2:force_original_aspect_ratio=decrease", "-q:v", "3", str(dest),
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
