@@ -1,4 +1,28 @@
 (()=>{
+const originalFetch=window.fetch.bind(window);
+const ratioMap={
+  '3:2 (Landscape Photo)':'3:2 (Photo)',
+  '9:16 (Portrait)':'9:16 (Portrait Widescreen)',
+  '16:9 (Landscape)':'16:9 (Widescreen)',
+  '4:3 (Landscape Standard)':'4:3 (Standard)'
+};
+window.fetch=async(input,init)=>{
+  try{
+    const url=typeof input==='string'?input:(input&&input.url)||'';
+    if(url==='/prompt'&&init?.body&&typeof init.body==='string'){
+      const body=JSON.parse(init.body);
+      const ar=body?.prompt?.['115']?.inputs?.aspect_ratio;
+      if(ratioMap[ar]){
+        body.prompt['115'].inputs.aspect_ratio=ratioMap[ar];
+        init={...init,body:JSON.stringify(body)};
+      }
+    }
+  }catch{}
+  return originalFetch(input,init);
+};
+})();
+
+(()=>{
 const DB='h3-mobile-library',STORE='favorites',MAX=10;let target=null;
 function openDb(){return new Promise((res,rej)=>{const r=indexedDB.open(DB,1);r.onupgradeneeded=()=>r.result.createObjectStore(STORE,{keyPath:'id'});r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
 async function allFav(){const db=await openDb();return new Promise((res,rej)=>{const r=db.transaction(STORE).objectStore(STORE).getAll();r.onsuccess=()=>res(r.result||[]);r.onerror=()=>rej(r.error);});}
@@ -13,7 +37,6 @@ async function render(mode='uploaded'){const body=document.querySelector('#h3lib
 function open(input){target=input;css();close();const m=document.createElement('div');m.id='h3libmodal';m.className='h3lib-modal';m.innerHTML='<div class="h3lib-box"><div class="row"><b style="flex:1">画像を選択</b><button class="secondary" id="h3libclose">閉じる</button></div><div class="h3lib-tabs"><button class="secondary active" data-lib="uploaded">今回アップロード</button><button class="secondary" data-lib="favorites">お気に入り（最大10）</button></div><div id="h3libbody"></div></div>';document.body.appendChild(m);m.querySelector('#h3libclose').onclick=close;m.querySelectorAll('[data-lib]').forEach(b=>b.onclick=()=>{m.querySelectorAll('[data-lib]').forEach(x=>x.classList.toggle('active',x===b));render(b.dataset.lib);});render('uploaded');}
 function addButton(input){if(!input||input.dataset.libReady)return;input.dataset.libReady='1';const b=document.createElement('button');b.type='button';b.className='secondary h3lib-btn';b.textContent='アップロード済み / お気に入りから選ぶ';b.onclick=e=>{e.preventDefault();e.stopPropagation();open(input);};input.insertAdjacentElement('afterend',b);}
 function scan(){['#image0','#ref0','#ref1','#batchI2VFiles'].forEach(s=>addButton(document.querySelector(s)));document.querySelectorAll('#batchRefList input[type=file]').forEach(addButton);}
-function loadPromptLibrary(){if(document.querySelector('script[data-h3-prompt-library]'))return;const s=document.createElement('script');s.src='/h3-mobile/prompt-library.js';s.dataset.h3PromptLibrary='1';document.body.appendChild(s);}
-function init(){css();scan();new MutationObserver(scan).observe(document.body,{childList:true,subtree:true});loadPromptLibrary();}
+function init(){css();scan();new MutationObserver(scan).observe(document.body,{childList:true,subtree:true});}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
