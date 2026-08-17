@@ -1,0 +1,14 @@
+diff --git a/nodes.py b/nodes.py
+index a506b01..58bcc28 100644
+--- a/nodes.py
++++ b/nodes.py
+@@ -497,7 +497,8 @@ class Ref2VAUltraSafeBlockCacheRuntime:
+             context.consecutive_hits = 0
+             # Keep the current block-0 output for constructing the exact tail residual after the
+             # last block. In CPU cache mode, v0.4.1 defaults to the proven v0.3 behavior: stage
+-            # block-0 output on CPU immediately. The optional Au…142 tokens truncated…ck_output = _tensor_storage_copy(first_output, self.storage)
++            # block-0 output on CPU immediately.
++            context.first_block_output = _tensor_storage_copy(first_output, self.storage)
+             context.pending_first_residual = _tensor_storage_copy(first_residual, self.storage)
+             if self.debug:
+                 reason = "observe/full" if self.config.observe_only else "FULL"
