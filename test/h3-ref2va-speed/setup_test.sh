@@ -91,8 +91,9 @@ print(f'[OK] Turbo LoRA: {size/1024/1024:.1f} MiB')
 PY
 fi
 
+python3 "$SCRIPT_DIR/build_workflows.py"
 cp -f "$SCRIPT_DIR"/workflows/*.json "$WORKFLOW_DST/"
-echo "[OK] workflows copied to: $WORKFLOW_DST"
+echo "[OK] workflows built and copied to: $WORKFLOW_DST"
 
 echo
 echo "============================================="
