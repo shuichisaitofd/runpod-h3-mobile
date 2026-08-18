@@ -88,12 +88,12 @@ PRESETS = {
         max_consecutive_hits=1,
     ),
     AGGRESSIVE: PresetConfig(
-        global_threshold=0.120,
-        video_threshold=0.120,
-        audio_threshold=0.100,
-        visual_ref_threshold=0.090,
-        audio_ref_threshold=0.090,
-        temporal_threshold=0.145,
+        global_threshold=0.110,
+        video_threshold=0.110,
+        audio_threshold=0.095,
+        visual_ref_threshold=0.080,
+        audio_ref_threshold=0.080,
+        temporal_threshold=0.135,
         start_percent=0.05,
         end_percent=0.98,
         max_consecutive_hits=2,
@@ -115,40 +115,86 @@ PRESETS = {
 
 @dataclass
 class StepMetrics:
-    global_ratio: float | None = None
-    video_ratio: float | None = None
-    audio_ratio: float | None = None
-    visual_ref_ratio: float | None = None
-    audio_ref_ratio: float | None = None
-    temporal_ratio: float | None = None
-    reason: str = ""
-    eligible: bool = False
-    cache_hit: bool = False
+    global_change: float = math.inf
+    video_change: float = math.inf
+    audio_change: float = math.inf
+    visual_ref_change: float = math.inf
+    audio_ref_change: float = math.inf
+    temporal_change: float = math.inf
 
 
 @dataclass
 class CacheContext:
-    input_signature: tuple | None = None
     previous_sigma: float | None = None
+    previous_block0: torch.Tensor | None = None
+    cached_tail_residual: torch.Tensor | None = None
+    cached_tail_residual_cpu: torch.Tensor | None = None
+    input_signature: tuple | None = None
     layout: Any = None
     has_refs: bool = False
     use_cache: bool = False
-    previous_block0_in: Any = None
-    previous_block0_out: Any = None
-    tail_residual: Any = None
     metrics: StepMetrics = field(default_factory=StepMetrics)
-    consecutive_hits: int = 0
-    tail_scales: Any = None
+    tail_scales: torch.Tensor | None = None
+    hit_streak: int = 0
 
     def clear_tensors(self):
-        self.previous_block0_in = None
-        self.previous_block0_out = None
-        self.tail_residual = None
-        self.consecutive_hits = 0
+        self.previous_block0 = None
+        self.cached_tail_residual = None
+        self.cached_tail_residual_cpu = None
         self.tail_scales = None
+        self.hit_streak = 0
 
 
-class Ref2VACacheRuntime:
+def _safe_mean_abs(tensor: torch.Tensor | None) -> float:
+    if tensor is None or not torch.is_tensor(tensor) or tensor.numel() == 0:
+        return math.inf
+    return float(tensor.detach().float().abs().mean().item())
+
+
+def _relative_change(current: torch.Tensor | None, previous: torch.Tensor | None) -> float:
+    if current is None or previous is None:
+        return math.inf
+    if not torch.is_tensor(current) or not torch.is_tensor(previous):
+        return math.inf
+    if tuple(current.shape) != tuple(previous.shape):
+        return math.inf
+    cur = current.detach().float()
+    prev = previous.detach().float()
+    denom = prev.abs().mean().clamp_min(1e-6)
+    return float((cur - prev).abs().mean().div(denom).item())
+
+
+def _temporal_change(tensor: torch.Tensor | None, layout) -> float:
+    if tensor is None or layout is None or not torch.is_tensor(tensor):
+        return math.inf
+    try:
+        target = layout.target_video
+        start = int(target.start)
+        end = int(target.end)
+    except Exception:
+        return math.inf
+    if end <= start or tensor.ndim < 3:
+        return math.inf
+    sliced = tensor[:, start:end]
+    if sliced.shape[1] < 2:
+        return 0.0
+    diffs = sliced[:, 1:] - sliced[:, :-1]
+    denom = sliced[:, :-1].detach().float().abs().mean().clamp_min(1e-6)
+    return float(diffs.detach().float().abs().mean().div(denom).item())
+
+
+def _segment_change(current: torch.Tensor, previous: torch.Tensor, segment) -> float:
+    try:
+        start = int(segment.start)
+        end = int(segment.end)
+    except Exception:
+        return math.inf
+    if end <= start:
+        return 0.0
+    return _relative_change(current[:, start:end], previous[:, start:end])
+
+
+class Ref2VABlockCacheRuntime:
     def __init__(
         self,
         config: PresetConfig,
@@ -162,21 +208,23 @@ class Ref2VACacheRuntime:
         cpu_tail_compute: str = CPU_TAIL_SAFE,
     ):
         self.config = config
-        self.start_sigma = float(start_sigma)
-        self.end_sigma = float(end_sigma)
-        self.block_count = int(block_count)
+        self.start_sigma = start_sigma
+        self.end_sigma = end_sigma
+        self.block_count = block_count
         self.storage = storage
-        self.debug = bool(debug)
-        self.tail_rescale = bool(tail_rescale)
-        self.cpu_tail_compute = cpu_tail_compute
+        self.debug = debug
         self.block_modules = block_modules
-        self.block_ids = tuple(id(b) for b in block_modules)
+        self.block_ids = tuple(id(block) for block in block_modules)
+        self.tail_rescale = tail_rescale
+        self.cpu_tail_compute = cpu_tail_compute
         self.contexts: dict[tuple[str, ...], CacheContext] = {}
         self.current: CacheContext | None = None
         self.prefetch_queue = None
-        self.total_steps = 0
-        self.eligible_steps = 0
+        self._lock = threading.Lock()
+        self.total_calls = 0
+        self.full_steps = 0
         self.cache_hits = 0
+        self.cache_misses = 0
         self.prefetch_suppressed_steps = 0
         self.steps_without_refs = 0
         self.gpu_tail_steps = 0
@@ -237,416 +285,239 @@ class Ref2VACacheRuntime:
                 pass
         return out
 
-    @staticmethod
-    def _safe_rel_diff(current, previous, eps=1e-8):
-        if current is None or previous is None:
+    def decide_after_block0(self, block0_output: torch.Tensor):
+        context = self.current
+        if context is None:
+            return
+        self.total_calls += 1
+        previous = context.previous_block0
+        context.metrics.global_change = _relative_change(block0_output, previous)
+        if previous is not None and context.layout is not None:
+            try:
+                context.metrics.video_change = _segment_change(block0_output, previous, context.layout.target_video)
+                context.metrics.audio_change = _segment_change(block0_output, previous, context.layout.target_audio)
+                visual_refs = list(getattr(context.layout, "visual_refs", []) or [])
+                audio_refs = list(getattr(context.layout, "audio_refs", []) or [])
+                if visual_refs:
+                    context.metrics.visual_ref_change = max(_segment_change(block0_output, previous, seg) for seg in visual_refs)
+                else:
+                    context.metrics.visual_ref_change = 0.0
+                if audio_refs:
+                    context.metrics.audio_ref_change = max(_segment_change(block0_output, previous, seg) for seg in audio_refs)
+                else:
+                    context.metrics.audio_ref_change = 0.0
+            except Exception:
+                if not self._layout_warned:
+                    logging.warning("[H3 Ref2VA Block Cache] Failed to read Ref2VA layout; cache disabled until layout is valid.")
+                    self._layout_warned = True
+        context.metrics.temporal_change = _temporal_change(block0_output, context.layout)
+
+        cache_ready = context.cached_tail_residual is not None or context.cached_tail_residual_cpu is not None
+        metrics_ok = (
+            context.metrics.global_change <= self.config.global_threshold
+            and context.metrics.video_change <= self.config.video_threshold
+            and context.metrics.audio_change <= self.config.audio_threshold
+            and context.metrics.visual_ref_change <= self.config.visual_ref_threshold
+            and context.metrics.audio_ref_change <= self.config.audio_ref_threshold
+            and context.metrics.temporal_change <= self.config.temporal_threshold
+        )
+        context.use_cache = bool(
+            cache_ready
+            and context.has_refs
+            and self._within_window(context)
+            and metrics_ok
+            and context.hit_streak < self.config.max_consecutive_hits
+            and not self.config.observe_only
+        )
+        if context.use_cache:
+            self.cache_hits += 1
+            context.hit_streak += 1
+            if self.prefetch_queue is not None:
+                try:
+                    self.prefetch_queue.clear()
+                    self.prefetch_suppressed_steps += 1
+                except Exception:
+                    pass
+        else:
+            self.cache_misses += 1
+            context.hit_streak = 0
+        context.previous_block0 = block0_output.detach().clone()
+
+    def cached_tail_for(self, reference: torch.Tensor):
+        context = self.current
+        if context is None:
             return None
-        if not (torch.is_tensor(current) and torch.is_tensor(previous)):
-            return None
-        cur = current.detach().float()
-        prev = previous.detach().float()
-        denom = prev.abs().mean().clamp_min(eps)
-        return float((cur - prev).abs().mean().div(denom).item())
-
-    @staticmethod
-    def _match_device_dtype(value, ref):
-        if torch.is_tensor(value) and torch.is_tensor(ref):
-            if value.device != ref.device or value.dtype != ref.dtype:
-                return value.to(device=ref.device, dtype=ref.dtype)
-        return value
-
-    @staticmethod
-    def _tensor_get(tensor, selector):
-        if not torch.is_tensor(tensor):
-            return None
-        try:
-            return tensor[selector]
-        except Exception:
-            return None
-
-    def _layout_slices(self, tensor, layout):
-        # Native H3 exposes a layout that maps the concatenated token sequence to target/reference
-        # video/audio regions. Support both dict-like and object-like access so this stays compatible
-        # across recent ComfyUI H3 implementations.
-        if tensor is None or layout is None:
-            return None
-
-        def get(name, default=None):
-            if isinstance(layout, dict):
-                return layout.get(name, default)
-            return getattr(layout, name, default)
-
-        candidates = {}
-        direct_names = {
-            "video": ["video", "target_video", "target_video_slice", "video_slice"],
-            "audio": ["audio", "target_audio", "target_audio_slice", "audio_slice"],
-            "visual_ref": ["visual_ref", "visual_refs", "reference_video", "ref_video", "visual_ref_slice"],
-            "audio_ref": ["audio_ref", "audio_refs", "reference_audio", "ref_audio", "audio_ref_slice"],
-        }
-        for key, names in direct_names.items():
-            for name in names:
-                selector = get(name)
-                if selector is not None:
-                    value = self._tensor_get(tensor, selector)
-                    if value is not None:
-                        candidates[key] = value
-                        break
-        if candidates:
-            return candidates
-
-        # Common count/offset fallback. If exact names are unavailable, do not guess silently; emit a
-        # one-time warning and disable cache decisions for that step.
-        if not self._layout_warned:
-            logging.warning(
-                "[H3 Ref2VA Block Cache] Unable to map native H3 layout into target/reference regions; "
-                "cache hits will remain disabled until a supported layout is seen."
-            )
-            self._layout_warned = True
+        if context.cached_tail_residual is not None:
+            return context.cached_tail_residual.to(device=reference.device, dtype=reference.dtype, non_blocking=True)
+        if context.cached_tail_residual_cpu is not None:
+            return context.cached_tail_residual_cpu.to(device=reference.device, dtype=reference.dtype, non_blocking=True)
         return None
 
-    @staticmethod
-    def _frame_worst_ratio(current, previous, eps=1e-8):
-        if not (torch.is_tensor(current) and torch.is_tensor(previous)):
-            return None
-        if current.ndim < 2:
-            return Ref2VACacheRuntime._safe_rel_diff(current, previous, eps)
-        cur = current.detach().float()
-        prev = previous.detach().float()
-        # Treat the penultimate sequence-like dimension as temporal/token axis and compare each slice.
-        axis = -2
-        diff = (cur - prev).abs().mean(dim=tuple(i for i in range(cur.ndim) if i != (cur.ndim + axis) % cur.ndim))
-        denom = prev.abs().mean(dim=tuple(i for i in range(prev.ndim) if i != (prev.ndim + axis) % prev.ndim)).clamp_min(eps)
-        ratio = diff / denom
-        return float(ratio.max().item())
-
-    def _store(self, value):
-        if value is None:
-            return None
-        if isinstance(value, tuple):
-            return tuple(self._store(v) for v in value)
-        if isinstance(value, list):
-            return [self._store(v) for v in value]
-        if torch.is_tensor(value):
-            out = value.detach()
-            if self.storage == CPU_STORAGE:
-                out = out.to("cpu")
-            else:
-                out = out.clone()
-            return out
-        return value
-
-    def _restore_like(self, stored, ref):
-        if isinstance(stored, tuple) and isinstance(ref, tuple):
-            return tuple(self._restore_like(s, r) for s, r in zip(stored, ref))
-        if isinstance(stored, list) and isinstance(ref, list):
-            return [self._restore_like(s, r) for s, r in zip(stored, ref)]
-        if torch.is_tensor(stored) and torch.is_tensor(ref):
-            return stored.to(device=ref.device, dtype=ref.dtype)
-        return stored
-
-    @staticmethod
-    def _sub(a, b):
-        if isinstance(a, tuple) and isinstance(b, tuple):
-            return tuple(Ref2VACacheRuntime._sub(x, y) for x, y in zip(a, b))
-        if isinstance(a, list) and isinstance(b, list):
-            return [Ref2VACacheRuntime._sub(x, y) for x, y in zip(a, b)]
-        if torch.is_tensor(a) and torch.is_tensor(b):
-            return a - b
-        raise TypeError("Unsupported H3 block output structure")
-
-    @staticmethod
-    def _add(a, b):
-        if isinstance(a, tuple) and isinstance(b, tuple):
-            return tuple(Ref2VACacheRuntime._add(x, y) for x, y in zip(a, b))
-        if isinstance(a, list) and isinstance(b, list):
-            return [Ref2VACacheRuntime._add(x, y) for x, y in zip(a, b)]
-        if torch.is_tensor(a) and torch.is_tensor(b):
-            return a + b
-        raise TypeError("Unsupported H3 block output structure")
-
-    @staticmethod
-    def _mul(a, scale):
-        if isinstance(a, tuple):
-            return tuple(Ref2VACacheRuntime._mul(x, scale) for x in a)
-        if isinstance(a, list):
-            return [Ref2VACacheRuntime._mul(x, scale) for x in a]
-        if torch.is_tensor(a):
-            return a * scale
-        raise TypeError("Unsupported H3 block output structure")
-
-    def _derive_tail_scales(self, current, previous):
-        if not self.tail_rescale:
-            return None
-        cur_tensors = current if isinstance(current, (tuple, list)) else (current,)
-        prev_tensors = previous if isinstance(previous, (tuple, list)) else (previous,)
-        scales = []
-        for cur, prev in zip(cur_tensors, prev_tensors):
-            if not (torch.is_tensor(cur) and torch.is_tensor(prev)):
-                scales.append(1.0)
-                continue
-            prev_mag = prev.detach().float().abs().mean().clamp_min(1e-8)
-            cur_mag = cur.detach().float().abs().mean()
-            scale = float((cur_mag / prev_mag).clamp(0.90, 1.10).item())
-            scales.append(scale)
-        if isinstance(current, tuple):
-            return tuple(scales)
-        if isinstance(current, list):
-            return list(scales)
-        return scales[0] if scales else 1.0
-
-    def _apply_scales(self, value, scales):
-        if scales is None:
-            return value
-        if isinstance(value, tuple) and isinstance(scales, tuple):
-            return tuple(self._mul(v, s) for v, s in zip(value, scales))
-        if isinstance(value, list) and isinstance(scales, list):
-            return [self._mul(v, s) for v, s in zip(value, scales)]
-        return self._mul(value, scales)
-
-    def _maybe_gpu_tail_fast_path(self, current_block0_out):
+    def finish_full_step(self, output: torch.Tensor):
         context = self.current
-        if context is None or self.storage != CPU_STORAGE or self.cpu_tail_compute != CPU_TAIL_AUTO:
-            return False
-        if context.tail_residual is None or context.previous_block0_out is None:
-            return False
-        # Only stage the cached tail on GPU after every guard has already passed. This keeps the
-        # default Safe CPU behavior identical to v0.3 while allowing a benchmark-only fast path.
-        try:
-            restored = self._restore_like(context.tail_residual, current_block0_out)
-            context.tail_residual = restored
-            self.gpu_tail_steps += 1
-            return True
-        except Exception:
-            return False
-
-    def decide_after_block0(self, block0_input, block0_output):
-        context = self.current
-        if context is None:
-            return False
-
-        self.total_steps += 1
-        metrics = StepMetrics()
-        context.metrics = metrics
-
-        if self.config.observe_only:
-            metrics.reason = "observe-only"
-        elif not context.has_refs:
-            metrics.reason = "no-native-ref-layout"
-        elif not self._within_window(context):
-            metrics.reason = "outside-window"
-        elif context.previous_block0_in is None or context.previous_block0_out is None or context.tail_residual is None:
-            metrics.reason = "warmup"
-        elif context.consecutive_hits >= self.config.max_consecutive_hits:
-            metrics.reason = "max-consecutive"
+        if context is None or context.previous_block0 is None:
+            raise RuntimeError("H3 Ref2VA Block Cache full-step state is incomplete")
+        residual = (output - context.previous_block0).detach()
+        if self.tail_rescale:
+            base = context.previous_block0.detach().float()
+            tail = residual.float()
+            denom = tail.flatten(2).norm(dim=2, keepdim=True).clamp_min(1e-6)
+            target = base.flatten(2).norm(dim=2, keepdim=True).clamp_min(1e-6)
+            scales = (target / denom).clamp(0.5, 2.0)
+            context.tail_scales = scales
         else:
-            metrics.global_ratio = self._safe_rel_diff(block0_output, context.previous_block0_out)
-            regions = self._layout_slices(block0_output, context.layout)
-            prev_regions = self._layout_slices(context.previous_block0_out, context.layout)
-            if regions is None or prev_regions is None:
-                metrics.reason = "unsupported-layout"
-            else:
-                metrics.video_ratio = self._safe_rel_diff(regions.get("video"), prev_regions.get("video"))
-                metrics.audio_ratio = self._safe_rel_diff(regions.get("audio"), prev_regions.get("audio"))
-                metrics.visual_ref_ratio = self._safe_rel_diff(regions.get("visual_ref"), prev_regions.get("visual_ref"))
-                metrics.audio_ref_ratio = self._safe_rel_diff(regions.get("audio_ref"), prev_regions.get("audio_ref"))
-                metrics.temporal_ratio = self._frame_worst_ratio(regions.get("video"), prev_regions.get("video"))
+            context.tail_scales = None
+        if self.storage == GPU_STORAGE:
+            context.cached_tail_residual = residual
+            context.cached_tail_residual_cpu = None
+            self.gpu_tail_steps += 1
+        else:
+            context.cached_tail_residual = None
+            context.cached_tail_residual_cpu = residual.to("cpu", non_blocking=False)
+        self.full_steps += 1
 
-                checks = [
-                    (metrics.global_ratio, self.config.global_threshold, "global"),
-                    (metrics.video_ratio, self.config.video_threshold, "video"),
-                    (metrics.audio_ratio, self.config.audio_threshold, "audio"),
-                    (metrics.visual_ref_ratio, self.config.visual_ref_threshold, "visual-ref"),
-                    (metrics.audio_ref_ratio, self.config.audio_ref_threshold, "audio-ref"),
-                    (metrics.temporal_ratio, self.config.temporal_threshold, "temporal"),
-                ]
-                failed = []
-                for value, threshold, name in checks:
-                    if value is not None and value > threshold:
-                        failed.append(f"{name}:{value:.4f}>{threshold:.4f}")
-                if failed:
-                    metrics.reason = ", ".join(failed)
-                else:
-                    metrics.eligible = True
-                    self.eligible_steps += 1
-                    context.tail_scales = self._derive_tail_scales(block0_output, context.previous_block0_out)
-                    context.use_cache = True
-                    metrics.cache_hit = True
-                    metrics.reason = "cache-hit"
-                    self.cache_hits += 1
-                    context.consecutive_hits += 1
-                    self._maybe_gpu_tail_fast_path(block0_output)
-                    return True
-
-        context.use_cache = False
-        context.consecutive_hits = 0
-        return False
-
-    def capture_full_step(self, block0_input, block0_output, final_output):
+    def maybe_rescale_tail(self, tail: torch.Tensor):
         context = self.current
-        if context is None:
-            return
-        context.previous_block0_in = self._store(block0_input)
-        context.previous_block0_out = self._store(block0_output)
-        context.tail_residual = self._store(self._sub(final_output, block0_output))
-        context.consecutive_hits = 0
-
-    def cached_output(self, block0_output):
-        context = self.current
-        if context is None or context.tail_residual is None:
-            raise RuntimeError("H3 Ref2VA Block Cache requested without a stored tail residual")
-        residual = self._restore_like(context.tail_residual, block0_output)
-        residual = self._apply_scales(residual, context.tail_scales)
-        return self._add(block0_output, residual)
-
-    def suppress_prefetch_after_hit(self):
-        if self.prefetch_queue is None:
-            return
+        if context is None or context.tail_scales is None:
+            return tail
         try:
-            # The prefetch iterator is private to the currently scheduled H3 block queue. Clearing
-            # it prevents background loading of blocks 1..49 once we know the cached tail will be used.
-            if hasattr(self.prefetch_queue, "clear"):
-                self.prefetch_queue.clear()
-            elif hasattr(self.prefetch_queue, "queue"):
-                self.prefetch_queue.queue.clear()
-            self.prefetch_suppressed_steps += 1
+            shape = tail.shape
+            flat = tail.flatten(2)
+            scales = context.tail_scales.to(device=tail.device, dtype=flat.dtype)
+            return (flat * scales).reshape(shape)
         except Exception:
-            pass
+            return tail
 
-    def summary(self, label):
+    def summary(self, label: str) -> str:
         return (
-            f"[H3 Ref2VA Block Cache {NODE_VERSION}] {label}: "
-            f"steps={self.total_steps}, eligible={self.eligible_steps}, hits={self.cache_hits}, "
-            f"prefetch_suppressed={self.prefetch_suppressed_steps}, without_refs={self.steps_without_refs}, "
+            f"[H3 Ref2VA Block Cache {NODE_VERSION}] {label} | calls={self.total_calls} "
+            f"full={self.full_steps} hits={self.cache_hits} misses={self.cache_misses} "
+            f"prefetch_suppressed={self.prefetch_suppressed_steps} no_refs={self.steps_without_refs} "
             f"gpu_tail_steps={self.gpu_tail_steps}"
         )
 
     def reset(self):
-        self.contexts.clear()
-        self.current = None
-        self.prefetch_queue = None
+        with self._lock:
+            self.contexts.clear()
+            self.current = None
+            self.prefetch_queue = None
 
 
-def _make_prefetch_wrapper(runtime: Ref2VACacheRuntime):
-    def wrapper(executor, *args, **kwargs):
-        original_make = executor.original
-        if not _PREFETCH_AVAILABLE:
-            return executor(*args, **kwargs)
-        try:
-            queue = args[0] if args else kwargs.get("queue")
-            device = args[1] if len(args) > 1 else kwargs.get("device")
-            transformer_options = args[2] if len(args) > 2 else kwargs.get("transformer_options")
-            return runtime.capture_prefetch_queue(original_make, queue, device, transformer_options)
-        except Exception:
-            return executor(*args, **kwargs)
-    return wrapper
+def make_block_patch(runtime: Ref2VABlockCacheRuntime, index: int, last_index: int):
+    def patch(args, extra_options):
+        # ComfyUI H3 block replacement calls receive a dict-like args payload. Keep support for
+        # tuple/list variants to avoid binding the node to one minor ComfyUI implementation detail.
+        if isinstance(args, dict):
+            hidden_states = args.get("hidden_states")
+            encoder_hidden_states = args.get("encoder_hidden_states")
+            temb = args.get("temb")
+            audio_hidden_states = args.get("audio_hidden_states")
+            rotary_pos_emb = args.get("rotary_pos_emb")
+            transformer_options = args.get("transformer_options", {})
+            image_rotary_emb = args.get("image_rotary_emb")
+            audio_rotary_emb = args.get("audio_rotary_emb")
+            minimax_payload = args.get("minimax_payload")
+        else:
+            values = list(args)
+            hidden_states = values[0] if len(values) > 0 else None
+            encoder_hidden_states = values[1] if len(values) > 1 else None
+            temb = values[2] if len(values) > 2 else None
+            audio_hidden_states = values[3] if len(values) > 3 else None
+            rotary_pos_emb = values[4] if len(values) > 4 else None
+            transformer_options = values[5] if len(values) > 5 else {}
+            image_rotary_emb = values[6] if len(values) > 6 else None
+            audio_rotary_emb = values[7] if len(values) > 7 else None
+            minimax_payload = values[8] if len(values) > 8 else None
 
+        original_block = runtime.block_modules[index]
+        output = original_block(
+            hidden_states,
+            encoder_hidden_states,
+            temb,
+            audio_hidden_states,
+            rotary_pos_emb,
+            transformer_options,
+            image_rotary_emb=image_rotary_emb,
+            audio_rotary_emb=audio_rotary_emb,
+            minimax_payload=minimax_payload,
+        )
 
-def _extract_minimax_payload(args, kwargs):
-    payload = kwargs.get("minimax_payload")
-    if payload is not None:
-        return payload
-    # Native MiniMax H3 forward currently places minimax_payload after transformer_options. Avoid
-    # relying on one exact positional index across ComfyUI revisions; search for a dict carrying the
-    # native layout/refs keys.
-    for value in reversed(args):
-        if isinstance(value, dict) and ("layout" in value or "refs" in value):
-            return value
-    return None
+        if isinstance(output, tuple):
+            new_hidden = output[0]
+            rest = output[1:]
+        else:
+            new_hidden = output
+            rest = ()
 
-
-def _extract_transformer_options(args, kwargs):
-    options = kwargs.get("transformer_options")
-    if isinstance(options, dict):
-        return options
-    for value in args:
-        if isinstance(value, dict) and ("block_modulation_hooks" in value or "patches_replace" in value or "uuids" in value or "sigmas" in value):
-            return value
-    return {}
-
-
-def make_block_patch(runtime: Ref2VACacheRuntime, index: int, last_index: int):
-    def patch(args, extra_args):
-        # ComfyUI block replacement patch signature: patch(block_args_dict, extra_args_dict)
-        original_block = extra_args["original_block"]
         if index == 0:
-            block_input = args
-            out = original_block(args)
-            if runtime.current is None:
-                return out
-            # The native H3 block patch passes a dict; compare its primary hidden-state tensors.
-            input_value = tuple(v for v in block_input.values() if torch.is_tensor(v)) if isinstance(block_input, dict) else block_input
-            output_value = tuple(v for v in out.values() if torch.is_tensor(v)) if isinstance(out, dict) else out
-            runtime.decide_after_block0(input_value, output_value)
-            if runtime.current.use_cache:
-                runtime.suppress_prefetch_after_hit()
-            else:
-                runtime.current.previous_block0_in = runtime._store(input_value)
-                runtime.current.previous_block0_out = runtime._store(output_value)
-            return out
+            runtime.decide_after_block0(new_hidden)
+            if runtime.current is not None and runtime.current.use_cache:
+                cached_tail = runtime.cached_tail_for(new_hidden)
+                if cached_tail is not None:
+                    cached_tail = runtime.maybe_rescale_tail(cached_tail)
+                    new_hidden = new_hidden + cached_tail
+                    if rest:
+                        return (new_hidden, *rest)
+                    return new_hidden
+        elif runtime.current is not None and runtime.current.use_cache:
+            if rest:
+                return (new_hidden, *rest)
+            return new_hidden
 
-        if runtime.current is not None and runtime.current.use_cache:
-            if index == last_index:
-                # Reuse the complete tail residual at the final block. This is the only later block
-                # invoked on a cache hit; all middle blocks become no-ops.
-                current_value = tuple(v for v in args.values() if torch.is_tensor(v)) if isinstance(args, dict) else args
-                cached = runtime.cached_output(current_value)
-                if isinstance(args, dict):
-                    out = dict(args)
-                    tensor_keys = [k for k, v in args.items() if torch.is_tensor(v)]
-                    cached_vals = cached if isinstance(cached, (tuple, list)) else (cached,)
-                    for key, value in zip(tensor_keys, cached_vals):
-                        out[key] = value
-                    return out
-                return cached
-            return args
-
-        out = original_block(args)
-        if index == last_index and runtime.current is not None:
-            block0_out = runtime.current.previous_block0_out
-            if block0_out is not None:
-                final_value = tuple(v for v in out.values() if torch.is_tensor(v)) if isinstance(out, dict) else out
-                block0_ref = runtime._restore_like(block0_out, final_value)
-                runtime.current.tail_residual = runtime._store(runtime._sub(final_value, block0_ref))
-                runtime.current.consecutive_hits = 0
-        return out
+        if index == last_index:
+            runtime.finish_full_step(new_hidden)
+        if rest:
+            return (new_hidden, *rest)
+        return new_hidden
 
     return patch
 
 
-def make_diffusion_wrapper(runtime: Ref2VACacheRuntime):
+def make_diffusion_wrapper(runtime: Ref2VABlockCacheRuntime):
     def wrapper(executor, *args, **kwargs):
-        # x and timestep are the first two native diffusion-model arguments.
-        x = args[0] if args else kwargs.get("x")
+        x = args[0] if len(args) > 0 else kwargs.get("x")
         timestep = args[1] if len(args) > 1 else kwargs.get("timestep")
-        transformer_options = _extract_transformer_options(args, kwargs)
-        minimax_payload = _extract_minimax_payload(args, kwargs)
+        transformer_options = kwargs.get("transformer_options")
+        if transformer_options is None and len(args) > 3:
+            transformer_options = args[3]
+        transformer_options = transformer_options or {}
+        minimax_payload = kwargs.get("minimax_payload")
         runtime.begin_call(x, timestep, transformer_options, minimax_payload=minimax_payload)
         try:
-            if _PREFETCH_AVAILABLE:
-                key = f"h3_ref2va_prefetch_{id(runtime)}"
-                try:
-                    # Register only for the duration of this H3 diffusion call.
-                    comfy.patcher_extension.add_wrapper_with_key(
-                        comfy.patcher_extension.WrappersMP.PRE_RUN,
-                        key,
-                        _make_prefetch_wrapper(runtime),
-                        transformer_options,
-                    )
-                except Exception:
-                    pass
             return executor(*args, **kwargs)
         finally:
             runtime.end_call()
+
     return wrapper
 
 
-def make_sample_wrapper(runtime: Ref2VACacheRuntime, label: str):
+def make_sample_wrapper(runtime: Ref2VABlockCacheRuntime, label: str):
     def wrapper(executor, *args, **kwargs):
+        if not _PREFETCH_AVAILABLE:
+            logging.warning(
+                "[H3 Ref2VA Block Cache] comfy.model_prefetch unavailable; continuing without "
+                "tail-prefetch suppression. Cache hits still skip block compute, but offloaded "
+                "checkpoints may see reduced wall-clock savings."
+            )
+            try:
+                return executor(*args, **kwargs)
+            finally:
+                logging.info("\n%s", runtime.summary(label))
+                runtime.reset()
+
+        original_make = comfy.model_prefetch.make_prefetch_queue
+
+        def hooked_make(queue, device, transformer_options):
+            return runtime.capture_prefetch_queue(original_make, queue, device, transformer_options)
+
+        comfy.model_prefetch.make_prefetch_queue = hooked_make
         try:
             return executor(*args, **kwargs)
         finally:
+            comfy.model_prefetch.make_prefetch_queue = original_make
             logging.info("\n%s", runtime.summary(label))
             runtime.reset()
+
     return wrapper
 
 
@@ -731,19 +602,33 @@ class ApplyH3Ref2VAUltraSafeBlockCache:
             raise ValueError(f"Unknown cpu_tail_compute mode: {cpu_tail_compute}")
         if cache_storage == CPU_STORAGE and cpu_tail_compute == CPU_TAIL_AUTO:
             label = f"{label}; cpu_tail=Auto GPU Fast Path"
+        elif cache_storage == CPU_STORAGE:
+            label = f"{label}; cpu_tail=Safe CPU"
+        else:
+            label = f"{label}; cache=GPU"
 
         patched = model.clone()
         diffusion_model = patched.get_model_object("diffusion_model")
+        if not hasattr(diffusion_model, "blocks"):
+            raise RuntimeError("MiniMax H3 diffusion model does not expose .blocks")
         block_count = len(diffusion_model.blocks)
         if block_count < 2:
-            raise RuntimeError("MiniMax H3 Ref2VA Block Cache requires a multi-block diffusion model")
+            raise RuntimeError(f"Unexpected MiniMax H3 block count: {block_count}")
 
-        # Ref2VA native H3 runs high sigma to low sigma. Convert denoising progress into the sigma
-        # window using the model's current sampling schedule if available; fall back to 1->0.
-        start_sigma = 1.0 - config.start_percent
-        end_sigma = 1.0 - config.end_percent
+        # Existing block replacement patches are not composable with this cache: the cache owns the
+        # whole H3 block chain so that cache-hit steps can skip blocks 1..N deterministically.
+        object_patches = getattr(patched, "object_patches", {}) or {}
+        for key in object_patches:
+            key_text = str(key).lower()
+            if "blocks_replace" in key_text or "double_block" in key_text:
+                raise RuntimeError(
+                    "H3 Ref2VA Block Cache cannot be stacked after another H3 block-replacement patch "
+                    "(for example Spectrum). Remove the other block replacement on this branch."
+                )
 
-        runtime = Ref2VACacheRuntime(
+        start_sigma = max(0.0, 1.0 - config.start_percent)
+        end_sigma = max(0.0, 1.0 - config.end_percent)
+        runtime = Ref2VABlockCacheRuntime(
             config=config,
             start_sigma=start_sigma,
             end_sigma=end_sigma,
