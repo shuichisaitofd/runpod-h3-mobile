@@ -15,21 +15,37 @@ WEB_DIR = BASE_DIR / "web"
 API_WORKFLOWS = {
     "i2v": BASE_DIR / "api_workflows" / "i2v.json",
     "ref2va": BASE_DIR / "api_workflows" / "ref2va.json",
+    "ref2va_04": BASE_DIR / "api_workflows" / "ref2va_04.json",
+    "ref2va_03": BASE_DIR / "api_workflows" / "ref2va_03.json",
 }
 COMFYUI_DIR = BASE_DIR.parent.parent
 MODELS_DIR = COMFYUI_DIR / "models"
 OUTPUT_DIR = Path(folder_paths.get_output_directory())
 
+
+def _resolve_diffusion_model_path(filename):
+    # ComfyUI's folder_paths registers the "diffusion_models" folder type across
+    # BOTH models/unet and models/diffusion_models (see folder_paths.py's
+    # legacy "unet" -> "diffusion_models" alias). H3's large UNET files on this
+    # pod live under models/unet/, so checking models/diffusion_models/ alone
+    # reports them as missing and would trigger a redundant ~20GB re-download.
+    for sub in ("unet", "diffusion_models"):
+        candidate = MODELS_DIR / sub / filename
+        if candidate.is_file():
+            return candidate
+    return MODELS_DIR / "diffusion_models" / filename
+
+
 HF_H3 = "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main"
 MODEL_SPECS = {
-    "ref2va": {"label": "MiniMax H3 Ref2VA INT8", "url": f"{HF_H3}/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors", "path": MODELS_DIR / "diffusion_models" / "minimax_h3_ref2va_pruned_int8_convrot.safetensors"},
-    "fl2va": {"label": "MiniMax H3 FL2VA INT8", "url": f"{HF_H3}/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors", "path": MODELS_DIR / "diffusion_models" / "minimax_h3_fl2va_pruned_int8_convrot.safetensors"},
+    "ref2va": {"label": "MiniMax H3 Ref2VA INT8", "url": f"{HF_H3}/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors", "path": _resolve_diffusion_model_path("minimax_h3_ref2va_pruned_int8_convrot.safetensors")},
+    "fl2va": {"label": "MiniMax H3 FL2VA INT8", "url": f"{HF_H3}/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors", "path": _resolve_diffusion_model_path("minimax_h3_fl2va_pruned_int8_convrot.safetensors")},
     "qwen": {"label": "Qwen3-VL 32B MiniMax H3 NVFP4 AWQ", "url": f"{HF_H3}/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", "path": MODELS_DIR / "text_encoders" / "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"},
     "video_vae": {"label": "MiniMax H3 video VAE FP16", "url": f"{HF_H3}/vae/minimax_h3_video_vae_fp16.safetensors", "path": MODELS_DIR / "vae" / "minimax_h3_video_vae_fp16.safetensors"},
     "audio_vae": {"label": "MiniMax H3 audio VAE FP32", "url": f"{HF_H3}/vae/minimax_h3_audio_vae_fp32.safetensors", "path": MODELS_DIR / "vae" / "minimax_h3_audio_vae_fp32.safetensors"},
     "turbo_lora": {"label": "MiniMax H3 Turbo LoRA v4 step600 EMA", "url": "https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora/resolve/main/minimax_h3_turbo_v4_step600_ema.safetensors", "path": MODELS_DIR / "loras" / "minimax_h3_turbo_v4_step600_ema.safetensors"},
 }
-MODE_SETS = {"ref2va": ["ref2va", "qwen", "video_vae", "audio_vae"], "i2v": ["fl2va", "qwen", "video_vae", "audio_vae", "turbo_lora"]}
+MODE_SETS = {"ref2va": ["ref2va", "qwen", "video_vae", "audio_vae", "turbo_lora"], "i2v": ["fl2va", "qwen", "video_vae", "audio_vae", "turbo_lora"]}
 _download_tasks = {}
 _download_state = {key: {"status": "installed" if spec["path"].is_file() else "missing", "downloaded": 0, "total": None, "error": None} for key, spec in MODEL_SPECS.items()}
 routes = PromptServer.instance.routes
@@ -109,13 +125,22 @@ async def _download_one(key):
 
 @routes.get("/h3")
 async def h3_short_url(request):
-    raise web.HTTPFound("/h3-mobile")
+    raise web.HTTPFound("/h3-mobile/")
 
 @routes.get("/h3/")
 async def h3_short_url_slash(request):
-    raise web.HTTPFound("/h3-mobile")
+    raise web.HTTPFound("/h3-mobile/")
 
 @routes.get("/h3-mobile")
+async def h3_mobile_index_no_slash(request):
+    # Redirect to the trailing-slash URL so index.html's relative asset
+    # references (styles.css, app.js, ...) resolve under /h3-mobile/ instead
+    # of the site root. This is what lets the same index.html work unchanged
+    # whether it's served from here or from a GitHub Pages deployment rooted
+    # at a different path.
+    raise web.HTTPFound("/h3-mobile/")
+
+@routes.get("/h3-mobile/")
 async def h3_mobile_index(request): return web.FileResponse(WEB_DIR / "index.html")
 
 @routes.get("/h3-mobile/app.js")

@@ -3,7 +3,7 @@
   if(!el) return;
 
   // app.js contains an older container-uptime timer. Stop it immediately so
-  // the header is owned only by the RunPod lastStartedAt based clock below.
+  // the header is owned only by the PID1/container-uptime clock below.
   function disableLegacyRuntime(){
     try{
       if(typeof state!=='undefined'&&state?.runtimeTimer){
@@ -75,24 +75,22 @@
     timer=setInterval(render,1000);
   }
 
+  // Primary (and only) source for the header clock: the pod's own PID1-based
+  // uptime (/h3-mobile/api/runtime, /proc/1/stat + /proc/uptime, server-side).
+  // RunPod REST (/h3-mobile/api/pod-runtime, extra_routes.py) is intentionally
+  // NOT called here anymore: it required RUNPOD_API_KEY and returned 403 on
+  // this pod, and was being polled every 30s for no benefit. The endpoint
+  // itself is left in place server-side in case another caller needs it.
+  // This is container-start time, not RunPod's official Pod start time.
   async function sync(){
     disableLegacyRuntime();
     try{
-      const r=await fetch('/h3-mobile/api/pod-runtime',{cache:'no-store'});
+      const r=await fetch(typeof apiUrl==='function'?apiUrl('/h3-mobile/api/runtime'):'/h3-mobile/api/runtime',{cache:'no-store'});
       const j=await r.json();
-      if(j.ok){
-        const parsed=j.started_at?Date.parse(j.started_at):NaN;
-        if(Number.isFinite(parsed)){
-          startedAtMs=parsed;
-          fallbackBaseSeconds=null;
-          fallbackBaseNow=null;
-        }else if(j.uptime_seconds!=null){
-          fallbackBaseSeconds=Number(j.uptime_seconds);
-          fallbackBaseNow=Date.now();
-        }
-        render();
-        ensureTimer();
-        return;
+      if(j.ok&&j.uptime_seconds!=null){
+        startedAtMs=null;
+        fallbackBaseSeconds=Number(j.uptime_seconds);
+        fallbackBaseNow=Date.now();
       }
     }catch{}
     render();

@@ -2,7 +2,7 @@
   const root=()=>document.querySelector('#historyList');
   const isLarge=()=>root()?.classList.contains('large-view');
   function thumbUrl(video){
-    try{const u=new URL(video.src,location.href);const fn=u.searchParams.get('filename')||'';const sf=u.searchParams.get('subfolder')||'';return `/h3-mobile/api/thumbnail?filename=${encodeURIComponent(fn)}&subfolder=${encodeURIComponent(sf)}`;}catch{return '';}
+    try{const u=new URL(video.src,location.href);const fn=u.searchParams.get('filename')||'';const sf=u.searchParams.get('subfolder')||'';const path=`/h3-mobile/api/thumbnail?filename=${encodeURIComponent(fn)}&subfolder=${encodeURIComponent(sf)}`;return typeof apiUrl==='function'?apiUrl(path):path;}catch{return '';}
   }
   function apply(){
     const r=root();if(!r)return;
