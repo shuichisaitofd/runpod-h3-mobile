@@ -93,6 +93,50 @@ COPY h3-mobile/web/ /opt/comfyui-baked/custom_nodes/ComfyUI-H3-Mobile/web/
 COPY h3-mobile/api_workflows/ /opt/comfyui-baked/custom_nodes/ComfyUI-H3-Mobile/api_workflows/
 COPY workflows/ /opt/comfyui-baked/user/default/workflows/
 
+# Ref2VA Ultra Safe BlockCache accelerator (ApplyH3Ref2VAUltraSafeBlockCache),
+# required by the Ref2VA 04 workflow (Node 147). nodes.py is the verified
+# original recovered from h3-accelerator-source/verified.part00-06
+# (SHA256 6334f6102be897c512452e6113a6243e87824423d04e108dd2474ae382dc6f8a,
+# 40012 bytes) and must be baked in unmodified.
+RUN mkdir -p /opt/comfyui-baked/custom_nodes/ComfyUI-H3-Ref2VA-Accelerator
+COPY h3-accelerator/__init__.py /opt/comfyui-baked/custom_nodes/ComfyUI-H3-Ref2VA-Accelerator/__init__.py
+COPY h3-accelerator/nodes.py /opt/comfyui-baked/custom_nodes/ComfyUI-H3-Ref2VA-Accelerator/nodes.py
+
+# Build-time guard: fail the build itself (not just ComfyUI boot) if the
+# accelerator file fails to compile, its NODE_CLASS_MAPPINGS does not expose
+# ApplyH3Ref2VAUltraSafeBlockCache, or that class name drifts from what
+# ref2va_04.json (Node 147) actually references.
+RUN sha256sum /opt/comfyui-baked/custom_nodes/ComfyUI-H3-Ref2VA-Accelerator/nodes.py \
+    && python3.12 -m py_compile /opt/comfyui-baked/custom_nodes/ComfyUI-H3-Ref2VA-Accelerator/nodes.py \
+    && python3.12 - <<'PY'
+import ast, json
+
+nodes_path = "/opt/comfyui-baked/custom_nodes/ComfyUI-H3-Ref2VA-Accelerator/nodes.py"
+with open(nodes_path) as f:
+    tree = ast.parse(f.read(), filename=nodes_path)
+
+mapping_keys = None
+for node in ast.walk(tree):
+    if isinstance(node, ast.Assign) and any(
+        isinstance(t, ast.Name) and t.id == "NODE_CLASS_MAPPINGS" for t in node.targets
+    ):
+        mapping_keys = [k.value for k in node.value.keys]
+        break
+
+assert mapping_keys is not None, "NODE_CLASS_MAPPINGS not found in nodes.py"
+assert "ApplyH3Ref2VAUltraSafeBlockCache" in mapping_keys, mapping_keys
+
+wf_path = "/opt/comfyui-baked/custom_nodes/ComfyUI-H3-Mobile/api_workflows/ref2va_04.json"
+with open(wf_path) as f:
+    wf = json.load(f)
+class_type = wf.get("147", {}).get("class_type")
+assert class_type == "ApplyH3Ref2VAUltraSafeBlockCache", (
+    f"ref2va_04.json Node 147 class_type={class_type!r} does not match accelerator node"
+)
+
+print("Accelerator build validation OK:", class_type, "registered and matches ref2va_04.json Node 147")
+PY
+
 # Runtime guard: fail fast on an incompatible RunPod host before ComfyUI starts.
 COPY run.sh /run-h3.sh
 RUN chmod +x /run-h3.sh

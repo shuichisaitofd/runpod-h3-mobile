@@ -1,6 +1,13 @@
 (()=>{
 const MAX=5;
-const batch={mode:'i2v',refVariant:'04',i2vFiles:[],refSets:[{files:[null,null,null]}],running:false};
+// batch.submitting is true ONLY while jobs for the current run are being
+// uploaded/built/POSTed to /prompt (the short synchronous-ish setup phase).
+// It is NOT held true while ComfyUI actually generates the videos: once every
+// job in a run has been queued, submitting flips back to false so the form
+// can immediately be edited/started again for the next run. GPU-side progress
+// for an already-queued run is tracked entirely via state.jobs + the shared
+// /queue+/history polling in index.html, independent of this flag.
+const batch={mode:'i2v',refVariant:'04',i2vFiles:[],refSets:[{files:[null,null,null]}],submitting:false};
 const q=s=>document.querySelector(s);
 const qa=s=>[...document.querySelectorAll(s)];
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -111,6 +118,14 @@ async function restoreBatchProjectState(id){
 }
 window.restoreBatchProjectState=restoreBatchProjectState;
 async function upload(file,index,slot=0){
+  // Shared with app.js's uploadImage(): reuse the existing server file for
+  // identical content instead of always minting a new h3batch_* name. Without
+  // this, every batch job re-uploaded the same picked photo under a fresh
+  // Date.now()-based filename, so duplicates in ComfyUI/input were guaranteed.
+  if(typeof findExistingInputImage==='function'){
+    const existing=await findExistingInputImage(file);
+    if(existing)return existing;
+  }
   const safe=String(file.name||'image.png').replace(/[^a-zA-Z0-9._-]+/g,'_');
   const name=`h3batch_${Date.now()}_${index}_${slot}_${safe}`;
   let last=null;
@@ -133,19 +148,19 @@ function seedFor(i){const mode=q('#batchSeedMode').value;const base=Number(q('#b
 function setMsg(text,type=''){const el=q('#batchMessage');el.textContent=text;el.className=`notice ${type}`.trim();el.classList.remove('hidden');}
 function clearMsg(){q('#batchMessage').classList.add('hidden');}
 function applyBatchVariantDefaults(){if(batch.mode!=='ref2va')return;if(batch.refVariant==='03'){q('#batchSteps').value=4;q('#batchModeNote').innerHTML='Ref2VA 03: <b>Turbo LoRA + TurboSampler + Sol-Attn(int8_qk) + FusedModulation</b> / Steps・MP変更可';}else{q('#batchSteps').value=14;q('#batchModeNote').innerHTML='Ref2VA 04: <b>Sol-Attn(int8_qk) + BlockCache Balanced</b> / Steps・MP変更可';}}
-function setBatchVariant(v){if(batch.running)return;batch.refVariant=v;qa('#batchRefVariant [data-batch-variant]').forEach(b=>b.classList.toggle('active',b.dataset.batchVariant===v));applyBatchVariantDefaults();persistBatchMeta();}
+function setBatchVariant(v){if(batch.submitting)return;batch.refVariant=v;qa('#batchRefVariant [data-batch-variant]').forEach(b=>b.classList.toggle('active',b.dataset.batchVariant===v));applyBatchVariantDefaults();persistBatchMeta();}
 qa('#batchRefVariant [data-batch-variant]').forEach(b=>{if(!b.disabled)b.onclick=()=>setBatchVariant(b.dataset.batchVariant);});
-function setMode(mode){if(batch.running)return;batch.mode=mode;qa('[data-batch-mode]').forEach(b=>b.classList.toggle('active',b.dataset.batchMode===mode));const ref=mode==='ref2va';q('#batchI2VInputs').classList.toggle('hidden',ref);q('#batchRefInputs').classList.toggle('hidden',!ref);q('#batchStepsWrap').classList.toggle('hidden',!ref);q('#batchRefOptions').classList.toggle('hidden',!ref);q('#batchRatio').disabled=!ref;if(ref){q('#batchSec').value=6;q('#batchRatio').value='3:4';applyBatchVariantDefaults();}else{q('#batchSec').value=10;q('#batchRatio').value='元画像と同じ';q('#batchModeNote').innerHTML='I2V: <b>Turbo + Sage / 4step固定</b>'; }render();}
+function setMode(mode){if(batch.submitting)return;batch.mode=mode;qa('[data-batch-mode]').forEach(b=>b.classList.toggle('active',b.dataset.batchMode===mode));const ref=mode==='ref2va';q('#batchI2VInputs').classList.toggle('hidden',ref);q('#batchRefInputs').classList.toggle('hidden',!ref);q('#batchStepsWrap').classList.toggle('hidden',!ref);q('#batchRefOptions').classList.toggle('hidden',!ref);q('#batchRatio').disabled=!ref;if(ref){q('#batchSec').value=6;q('#batchRatio').value='3:4';applyBatchVariantDefaults();}else{q('#batchSec').value=10;q('#batchRatio').value='元画像と同じ';q('#batchModeNote').innerHTML='I2V: <b>Turbo + Sage / 4step固定</b>'; }render();}
 qa('[data-batch-mode]').forEach(b=>b.onclick=()=>setMode(b.dataset.batchMode));
 function filePreview(file){return file?URL.createObjectURL(file):'';}
-function renderI2V(){const root=q('#batchI2VList');root.innerHTML='';batch.i2vFiles.forEach((f,i)=>{const d=document.createElement('div');d.className='batch-item';d.innerHTML=`<img class="batch-thumb" src="${filePreview(f)}"><div class="batch-item-body"><b>${i+1}. ${esc(f.name)}</b><div class="small">Seed: ${seedFor(i)}</div></div><button class="secondary batch-remove" type="button">削除</button>`;d.querySelector('.batch-remove').onclick=()=>{if(batch.running)return;batch.i2vFiles.splice(i,1);render();persistBatchImages();};root.appendChild(d);});q('#batchI2VCount').textContent=`${batch.i2vFiles.length} / ${MAX}`;}
+function renderI2V(){const root=q('#batchI2VList');root.innerHTML='';batch.i2vFiles.forEach((f,i)=>{const d=document.createElement('div');d.className='batch-item';d.innerHTML=`<img class="batch-thumb" src="${filePreview(f)}"><div class="batch-item-body"><b>${i+1}. ${esc(f.name)}</b><div class="small">Seed: ${seedFor(i)}</div></div><button class="secondary batch-remove" type="button">削除</button>`;d.querySelector('.batch-remove').onclick=()=>{if(batch.submitting)return;batch.i2vFiles.splice(i,1);render();persistBatchImages();};root.appendChild(d);});q('#batchI2VCount').textContent=`${batch.i2vFiles.length} / ${MAX}`;}
 function refSetHtml(set,i){return `<div class="row"><b style="flex:1">セット ${i+1}</b><button class="secondary batch-remove-set" type="button">削除</button></div><div class="ref-slot-grid">${[0,1,2].map(slot=>{const f=set.files[slot];return `<label class="ref-slot ${f?'has-file':''}"><span>${slot===0?'参照1 メイン':'参照'+(slot+1)+' 任意'}</span>${f?`<img src="${filePreview(f)}"><small>${esc(f.name)}</small>`:'<b>＋ 選択</b>'}<input type="file" accept="image/*" data-set="${i}" data-slot="${slot}"></label>`}).join('')}</div><div class="small">Seed: ${seedFor(i)}</div>`;}
-function renderRef(){const root=q('#batchRefList');root.innerHTML='';batch.refSets.forEach((set,i)=>{const d=document.createElement('div');d.className='batch-ref-set';d.innerHTML=refSetHtml(set,i);d.querySelector('.batch-remove-set').onclick=()=>{if(batch.running)return;if(batch.refSets.length===1)batch.refSets[0]={files:[null,null,null]};else batch.refSets.splice(i,1);render();persistBatchImages();};d.querySelectorAll('input[type=file]').forEach(inp=>inp.onchange=()=>{const f=inp.files[0]||null;batch.refSets[Number(inp.dataset.set)].files[Number(inp.dataset.slot)]=f;render();persistBatchImages();});root.appendChild(d);});q('#batchRefCount').textContent=`${batch.refSets.length} / ${MAX}`;q('#addBatchRefSet').disabled=batch.refSets.length>=MAX||batch.running;}
+function renderRef(){const root=q('#batchRefList');root.innerHTML='';batch.refSets.forEach((set,i)=>{const d=document.createElement('div');d.className='batch-ref-set';d.innerHTML=refSetHtml(set,i);d.querySelector('.batch-remove-set').onclick=()=>{if(batch.submitting)return;if(batch.refSets.length===1)batch.refSets[0]={files:[null,null,null]};else batch.refSets.splice(i,1);render();persistBatchImages();};d.querySelectorAll('input[type=file]').forEach(inp=>inp.onchange=()=>{const f=inp.files[0]||null;batch.refSets[Number(inp.dataset.set)].files[Number(inp.dataset.slot)]=f;render();persistBatchImages();});root.appendChild(d);});q('#batchRefCount').textContent=`${batch.refSets.length} / ${MAX}`;q('#addBatchRefSet').disabled=batch.refSets.length>=MAX||batch.submitting;}
 function validRefCount(){return batch.refSets.filter(s=>s.files[0]).length;}
-function render(){renderI2V();renderRef();const n=batch.mode==='i2v'?batch.i2vFiles.length:validRefCount();q('#batchJobCount').textContent=`${n}件`;q('#startBatch').disabled=batch.running||n===0;q('#clearBatch').disabled=batch.running;persistBatchMeta();}
-q('#batchI2VFiles').onchange=()=>{if(batch.running)return;batch.i2vFiles=[...batch.i2vFiles,...q('#batchI2VFiles').files].slice(0,MAX);q('#batchI2VFiles').value='';render();persistBatchImages();};
-q('#addBatchRefSet').onclick=()=>{if(batch.running||batch.refSets.length>=MAX)return;batch.refSets.push({files:[null,null,null]});render();persistBatchImages();};
-q('#clearBatch').onclick=()=>{if(batch.running)return;batch.i2vFiles=[];batch.refSets=[{files:[null,null,null]}];clearMsg();render();persistBatchImages();};
+function render(){renderI2V();renderRef();const n=batch.mode==='i2v'?batch.i2vFiles.length:validRefCount();q('#batchJobCount').textContent=`${n}件`;q('#startBatch').disabled=batch.submitting||n===0;q('#clearBatch').disabled=batch.submitting;persistBatchMeta();}
+q('#batchI2VFiles').onchange=()=>{if(batch.submitting)return;batch.i2vFiles=[...batch.i2vFiles,...q('#batchI2VFiles').files].slice(0,MAX);q('#batchI2VFiles').value='';render();persistBatchImages();};
+q('#addBatchRefSet').onclick=()=>{if(batch.submitting||batch.refSets.length>=MAX)return;batch.refSets.push({files:[null,null,null]});render();persistBatchImages();};
+q('#clearBatch').onclick=()=>{if(batch.submitting)return;batch.i2vFiles=[];batch.refSets=[{files:[null,null,null]}];clearMsg();render();persistBatchImages();};
 q('#batchSeedMode').onchange=render;q('#batchSeed').oninput=render;
 ['#batchTitle','#batchPrompt','#batchSec','#batchMp','#batchRatio','#batchRefSize','#batchSteps'].forEach(s=>q(s)?.addEventListener('input',persistBatchMeta));
 q('#copyBatchPrompt').onclick=async()=>{const text=q('#batchPrompt').value.trim();if(!text)return;try{await navigator.clipboard.writeText(text);}catch{const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();}const b=q('#copyBatchPrompt'),old=b.textContent;b.textContent='コピー済み';setTimeout(()=>b.textContent=old,1000);};
@@ -167,7 +182,7 @@ wf['138'].inputs.value=cfg.prompt;wf['132'].inputs.value=cfg.seconds;wf['124'].i
 async function queueOne(wf,extra){return jf(au('/prompt'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:wf,extra_data:{h3_mobile:extra}})});}
 function safe(v){return String(v||'H3').replace(/[\\/:*?\"<>|]+/g,'_').slice(0,80);}
 async function start(){
-  if(batch.running)return;
+  if(batch.submitting)return;
   const prompt=q('#batchPrompt').value.trim();
   if(!prompt){setMsg('プロンプトを入力してください。','danger');return;}
   const jobs=batch.mode==='i2v'?batch.i2vFiles.map(f=>({file:f,title:f.name})):batch.refSets.filter(s=>s.files[0]).map((s,i)=>({set:s,title:`参照セット ${i+1}`}));
@@ -178,7 +193,21 @@ async function start(){
   const ratio=batch.mode==='i2v'?'元画像と同じ':q('#batchRatio').value;
   const refSize=q('#batchRefSize').value;
   const batchTitle=q('#batchTitle').value.trim()||'一括生成';
-  batch.running=true;render();clearMsg();
+  // Snapshot every setting this run depends on at the moment it starts. All
+  // values below (seconds/mp/steps/ratio/refSize/prompt/jobs/...) are already
+  // captured into local consts/lets here, before any `await`, so editing the
+  // form afterward (mode/refVariant/images/etc., once submitting flips back
+  // to false) can never retroactively change an in-flight or already-queued
+  // run — this run's cards, snapshot, and progress counter are independent
+  // closures, not references into the shared `batch` state object.
+  const runSnapshot={
+    title:batchTitle,prompt,mode:batch.mode,refVariant:batch.mode==='ref2va'?batch.refVariant:null,
+    seconds,steps:batch.mode==='ref2va'?steps:null,mp,ratio,
+    seedMode:q('#batchSeedMode').value,seedBase:Number(q('#batchSeed').value),
+    refSize:batch.mode==='ref2va'?refSize:null,
+    targets:jobs.map(j=>j.title),jobCount:jobs.length
+  };
+  batch.submitting=true;render();clearMsg();
 
   // Each batch run gets one wrapping .batch-group element (summary + all N job
   // cards) inserted as a single block into #queue — the SAME list single jobs
@@ -194,6 +223,7 @@ async function start(){
   // inserted as one block.
   const group=document.createElement('div');
   group.className='batch-group';
+  group.dataset.h3BatchSnapshot=JSON.stringify(runSnapshot);
   const summary=document.createElement('div');
   summary.className='batch-group-summary';
   summary.innerHTML=`<b>${esc(batchTitle)}</b><span class="batch-overall">0 / ${jobs.length}</span>`;
@@ -274,13 +304,25 @@ async function start(){
     }
   }
 
+  // Every job in this run that could be queued is now registered in
+  // state.jobs. All jobs for this run (1..N) have been submitted, so this
+  // run's Queue-submission phase is over: unlock the form immediately —
+  // do NOT wait for GPU generation to finish. batch.submitting only ever
+  // reflects "a run is currently being uploaded/queued", never "a run is
+  // still generating on the GPU". A different run (A or B) can now be
+  // edited and started while this run's jobs sit queued/running in
+  // ComfyUI; the wait below runs in the background purely to fill in this
+  // run's own card/counter, and never touches batch.submitting again.
+  batch.submitting=false;render();
+
   // All jobs that could be queued are now registered in state.jobs; the
   // shared tick() (index.html) — via /queue + /history polling — owns their
   // 待機中/実行中/完了/失敗 status, color, and elapsed/completion time from
   // here on, exactly like single jobs. This phase only waits for each job's
   // job.done flag to learn the final success/failure tally and update the
   // group's overall counter as each one actually finishes (not as each is
-  // submitted), matching what the counter showed before this change.
+  // submitted), matching what the counter showed before this change. It runs
+  // entirely in the background and does not gate the UI for any other run.
   let doneCount=prepared.filter(p=>p?.error||p?.queueError).length;
   if(overallEl)overallEl.textContent=`${doneCount} / ${jobs.length}`;
   await Promise.all(prepared.map(async p=>{
@@ -291,8 +333,11 @@ async function start(){
     if(overallEl)overallEl.textContent=`${doneCount} / ${jobs.length}`;
   }));
 
-  batch.running=false;render();
-  setMsg(`一括生成完了：成功 ${ok}件 / 失敗 ${fail}件`,fail?'':'ok');
+  // This run's own note line (inside its own .batch-group), not the shared
+  // #batchMessage banner: another run may already be mid-submission or
+  // mid-edit by the time this run's GPU jobs finish, and a shared banner
+  // would incorrectly stomp on that run's state/messages.
+  if(note)note.textContent=`完了：成功 ${ok}件 / 失敗 ${fail}件`;
   if(typeof loadHistory==='function')loadHistory();
 }
 q('#startBatch').onclick=start;

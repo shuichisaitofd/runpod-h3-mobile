@@ -21,7 +21,6 @@ function renderImagePreview(input){
   if(!input)return;
   const img=$('#'+input.id+'preview');
   if(!img)return;
-  const nameEl=$('#'+input.id+'filename');
   const box=input.closest('.ref-field');
   const f=input.files&&input.files[0];
   if(img.dataset.objectUrl){URL.revokeObjectURL(img.dataset.objectUrl);delete img.dataset.objectUrl;}
@@ -30,12 +29,10 @@ function renderImagePreview(input){
     img.src=url;
     img.dataset.objectUrl=url;
     img.classList.remove('hidden');
-    if(nameEl){nameEl.textContent=f.name;nameEl.classList.remove('hidden');}
     if(box)box.classList.add('has-thumb');
   }else{
     img.removeAttribute('src');
     img.classList.add('hidden');
-    if(nameEl){nameEl.textContent='';nameEl.classList.add('hidden');}
     if(box)box.classList.remove('has-thumb');
   }
 }
@@ -87,7 +84,28 @@ async function health(){try{await jsonFetch(apiUrl('/h3-mobile/health'));await j
 async function workflowStatus(){try{const [a,b,c]=await Promise.all([fetch(apiUrl('/h3-mobile/api/workflow/i2v')),fetch(apiUrl('/h3-mobile/api/workflow/ref2va_04')),fetch(apiUrl('/h3-mobile/api/workflow/ref2va_03'))]);if(!a.ok||!b.ok||!c.ok)throw new Error();$('#workflowStatus').className='notice ok';$('#workflowStatus').textContent='I2V / Ref2VA 03 / Ref2VA 04 API workflow 登録済み';}catch(e){$('#workflowStatus').className='notice danger';$('#workflowStatus').textContent='API workflowが不足しています。';}}
 async function loadRuntime(){try{const data=await jsonFetch(apiUrl('/h3-mobile/api/runtime'));if(data.uptime_seconds==null)throw new Error();state.runtimeSeconds=Number(data.uptime_seconds);renderRuntime();if(!state.runtimeTimer)state.runtimeTimer=setInterval(()=>{if(state.runtimeSeconds!=null){state.runtimeSeconds++;renderRuntime();}},1000);}catch{$('#runtime').textContent='起動時間 --:--:--';}}
 function renderRuntime(){if(state.runtimeSeconds==null)return;const sec=Math.max(0,Math.floor(state.runtimeSeconds));const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;$('#runtime').textContent=`起動 ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;}
-async function uploadImage(file){if(!file)throw new Error('画像を選択してください');const fd=new FormData();fd.append('image',file,file.name);fd.append('type','input');fd.append('overwrite','true');const data=await jsonFetch(apiUrl('/upload/image'),{method:'POST',body:fd});return data.name;}
+function bufToHex(buf){return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');}
+async function sha256Hex(file){const buf=await file.arrayBuffer();const digest=await crypto.subtle.digest('SHA-256',buf);return bufToHex(digest);}
+// Content-based dedup, shared by uploadImage() below and batch-v2.js's
+// upload(): ComfyUI's own /upload/image only compares hashes against a file
+// of the SAME filename (and only when overwrite isn't set — this app always
+// passes overwrite=true, which skips even that check), so it never catches a
+// photo re-selected under a different device/export filename. This looks the
+// file's content up against everything already in ComfyUI/input via the
+// h3-mobile server-side hash index; a match means the upload can be skipped
+// entirely and the existing server filename reused as-is.
+async function findExistingInputImage(file){
+  if(!(window.crypto&&crypto.subtle))return null;
+  try{
+    const hash=await sha256Hex(file);
+    const r=await fetch(apiUrl(`/h3-mobile/api/input-image-lookup?sha256=${hash}`));
+    if(!r.ok)return null;
+    const d=await r.json();
+    if(!d.found)return null;
+    return d.subfolder?`${d.subfolder}/${d.filename}`:d.filename;
+  }catch{return null;}
+}
+async function uploadImage(file){if(!file)throw new Error('画像を選択してください');const existing=await findExistingInputImage(file);if(existing)return existing;const fd=new FormData();fd.append('image',file,file.name);fd.append('type','input');fd.append('overwrite','true');const data=await jsonFetch(apiUrl('/upload/image'),{method:'POST',body:fd});return data.name;}
 function ratioApi(v){return {'2:3':'2:3 (Portrait Photo)','3:2':'3:2 (Landscape Photo)','9:16':'9:16 (Portrait)','16:9':'16:9 (Landscape)','1:1':'1:1 (Square)','4:3':'4:3 (Landscape Standard)','3:4':'3:4 (Portrait Standard)'}[v]||'3:4 (Portrait Standard)';}
 function jobCard(title,mode,seconds,steps,ratio,mp,prompt,status='待機中'){const d=document.createElement('div');d.className='queue';d.innerHTML=`<div><b>${escapeHtml(title)}</b> <span class="badge">${mode}</span></div><div class="meta small"><span>${seconds}秒</span>${steps?`<span>${steps} steps</span>`:''}<span>${escapeHtml(ratio)}</span><span>${mp} MP</span><span class="job-status ${h3StatusClass(status)}">${status}</span><span class="elapsed">経過 0秒</span></div><details><summary>使用したプロンプトと設定を見る</summary><div class="small" style="margin-top:8px;line-height:1.7">${escapeHtml(prompt)}</div></details>`;return d;}
 // 待機中は/prompt投入時刻(startedAt)基準の「待機 X」、実行中はtick()が

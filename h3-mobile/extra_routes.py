@@ -51,6 +51,65 @@ async def h3_mobile_pod_runtime(request):
         return web.json_response({"ok": False, "source": "runpod", "error": str(exc)})
 
 
+# filepath -> (mtime_ns, size, sha256_hex). ComfyUI's own /upload/image only
+# dedupes an upload against an existing file of the SAME filename (and only
+# when overwrite is not set) — it never compares content across different
+# filenames, so a re-selected photo exported under a new device filename (or
+# uploaded again from a different UI flow) always lands as a brand new file.
+# This cache lets input-image-lookup answer "does this content already exist
+# anywhere under input/" cheaply on repeat calls, without rehashing unchanged
+# files every time.
+_INPUT_HASH_CACHE: dict[str, tuple[int, int, str]] = {}
+
+
+def _sha256_of(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _find_input_image_by_hash(target_hash: str):
+    allowed = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+    if not INPUT_DIR.is_dir():
+        return None
+    for path in INPUT_DIR.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in allowed:
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        key = str(path)
+        cached = _INPUT_HASH_CACHE.get(key)
+        if cached and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+            digest = cached[2]
+        else:
+            try:
+                digest = _sha256_of(path)
+            except OSError:
+                continue
+            _INPUT_HASH_CACHE[key] = (stat.st_mtime_ns, stat.st_size, digest)
+        if digest == target_hash:
+            rel = path.relative_to(INPUT_DIR)
+            subfolder = str(rel.parent) if str(rel.parent) != "." else ""
+            return {"filename": path.name, "subfolder": subfolder}
+    return None
+
+
+@routes.get("/h3-mobile/api/input-image-lookup")
+async def h3_mobile_input_image_lookup(request):
+    target_hash = (request.query.get("sha256") or "").strip().lower()
+    if len(target_hash) != 64 or any(c not in "0123456789abcdef" for c in target_hash):
+        raise web.HTTPBadRequest(text="sha256 query param required (64 hex chars)")
+    loop = asyncio.get_event_loop()
+    match = await loop.run_in_executor(None, _find_input_image_by_hash, target_hash)
+    if match is None:
+        return web.json_response({"found": False})
+    return web.json_response({"found": True, **match})
+
+
 @routes.get("/h3-mobile/api/input-images")
 async def h3_mobile_input_images(request):
     allowed = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
