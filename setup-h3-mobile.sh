@@ -402,6 +402,19 @@ install_workflow() {
 install_workflow "H3_TurboV4_SageAttention_4step.json" || true
 install_workflow "H3_Spectrum_SolAttn_16step.json" || true
 
+# H3 Mobile: load the account-scope billing API key if one has been saved
+# via set-runpod-billing-key.sh (or provided directly through a RunPod
+# Template/Secret env var of the same name - this file is only a fallback
+# for that case). Only adds RUNPOD_BILLING_API_KEY - never touches
+# RUNPOD_API_KEY, RUNPOD_POD_ID, or anything else RunPod injects.
+H3_BILLING_ENV_FILE="/workspace/.secrets/runpod_billing.env"
+if [ -f "$H3_BILLING_ENV_FILE" ]; then
+    set -a
+    source "$H3_BILLING_ENV_FILE"
+    set +a
+    echo "OK: loaded RUNPOD_BILLING_API_KEY from $H3_BILLING_ENV_FILE"
+fi
+
 echo "============================================="
 if [ "$H3_CU130_HOST_OK" -eq 1 ]; then
     echo "  H3 mobile reproducible setup finished"

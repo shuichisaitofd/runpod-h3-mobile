@@ -52,6 +52,23 @@ then
 fi
 
 echo "[H3] Runtime OK: CUDA 13 / Torch cu130 / SageAttention / SM86"
+
+# H3 Mobile: load the account-scope billing API key if one has been saved
+# via set-runpod-billing-key.sh (or provided directly through a RunPod
+# Template/Secret env var of the same name - this file is only a fallback
+# for that case). Only adds RUNPOD_BILLING_API_KEY - never touches
+# RUNPOD_API_KEY, RUNPOD_POD_ID, or anything else RunPod injects. Runs on
+# every container start (fresh pod or Pod Stop -> Start of an existing
+# one), so the key survives without re-entry once saved to
+# /workspace/.secrets/runpod_billing.env.
+H3_BILLING_ENV_FILE="/workspace/.secrets/runpod_billing.env"
+if [ -f "$H3_BILLING_ENV_FILE" ]; then
+  set -a
+  source "$H3_BILLING_ENV_FILE"
+  set +a
+  echo "[H3] Loaded RUNPOD_BILLING_API_KEY from $H3_BILLING_ENV_FILE"
+fi
+
 echo "[H3] Starting standard RunPod ComfyUI services..."
 
 exec /start.sh "$@"

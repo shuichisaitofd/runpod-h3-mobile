@@ -52,74 +52,97 @@ async def h3_mobile_pod_runtime(request):
 
 
 # Header balance/cost display (feature request: show account balance, an
-# estimated remaining runtime, and the current hourly rate). Two separate
-# RunPod endpoints are needed: REST v2 for this pod's cost-per-hour, and the
-# GraphQL API for the account balance (REST v2 has no balance field as of
-# 2026-08). Either call can fail independently (e.g. a pod-scoped API key -
-# what RunPod auto-injects as RUNPOD_API_KEY - can read its own pod's cost
-# via REST v2 but gets GraphQL "Unauthorized", since GraphQL access is a
-# separate, broader permission) - each field degrades to null on its own
-# rather than failing the whole response, so the frontend can show whatever
-# partial data is available instead of an all-or-nothing dash.
+# estimated remaining runtime, and the current account-wide spend rate).
+# Two separate RunPod endpoints AND two separate keys are needed:
+#   - RUNPOD_API_KEY is the pod-scoped key RunPod auto-injects into every
+#     pod. Per RunPod's docs it is scoped to that pod, so it can read this
+#     pod's own cost via REST v2 but gets GraphQL "Unauthorized" when asked
+#     for account-level data - it is used for cost_per_hour (this pod only)
+#     ONLY, kept as auxiliary/internal info and NOT used for the remaining-
+#     time estimate below.
+#   - RUNPOD_BILLING_API_KEY is a separate, manually-configured account-scope
+#     key (not auto-injected) used for the GraphQL balance/spend_rate query
+#     ONLY.
+# estimated_hours_remaining is balance / spend_rate, where spend_rate is
+# GraphQL's currentSpendPerHr (the account's current total burn rate across
+# ALL pods/storage, not just this one) - this is what matches RunPod's own
+# "Estimated time left" figure, confirmed 2026-08-23. This pod's own
+# cost_per_hour is a different, smaller number when other resources are
+# also running on the account, so it is deliberately excluded from the
+# estimate.
+# Each field/key pair fails independently and degrades to null on its own,
+# so the frontend can show whatever partial data is available instead of an
+# all-or-nothing dash.
 @routes.get("/h3-mobile/api/pod-billing")
 async def h3_mobile_pod_billing(request):
     pod_id = os.environ.get("RUNPOD_POD_ID")
     api_key = os.environ.get("RUNPOD_API_KEY")
-    if not pod_id or not api_key:
-        return web.json_response({"balance": None, "cost_per_hour": None, "estimated_hours_remaining": None, "error": "RunPod metadata unavailable (pod id or API key missing)"})
+    billing_api_key = os.environ.get("RUNPOD_BILLING_API_KEY")
 
     timeout = aiohttp.ClientTimeout(total=15)
-    headers = {"Authorization": f"Bearer {api_key}"}
     cost_per_hour = None
     balance = None
+    spend_rate = None
     errors = []
 
-    # REST API v1 (rest.runpod.io/v1) is deprecated (sunset 2026-11-15) and
-    # returns a blanket 403 for RunPod's own pod-scoped keys (the key every
-    # pod gets auto-injected as RUNPOD_API_KEY). REST API v2 replaces
-    # costPerHr with an equivalently-defined "cost" field ("Current cost in
-    # USD per hour") and DOES work with a pod-scoped key for its own pod.
-    try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(f"https://api.runpod.io/v2/pods/{pod_id}", headers=headers) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    cost_per_hour = data.get("cost")
-                else:
-                    errors.append(f"cost_per_hour: HTTP {response.status}")
-    except Exception as exc:
-        errors.append(f"cost_per_hour: {exc}")
-
-    # Account credit balance has no REST v2 equivalent yet (checked against
-    # the v2 OpenAPI spec, 2026-08) - only GraphQL's myself.clientBalance
-    # exposes it, and it needs the key's separate "GraphQL access"
-    # permission, which is distinct from (and usually narrower than) REST
-    # endpoint permissions - a pod-scoped key can read its own pod's cost via
-    # REST v2 while still getting GraphQL "Unauthorized".
-    try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            query = {"query": "query { myself { clientBalance } }"}
-            async with session.post("https://api.runpod.io/graphql", headers=headers, json=query) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if data.get("errors"):
-                        errors.append("balance: " + "; ".join(e.get("message", "error") for e in data["errors"]))
+    # cost_per_hour: REST API v2, using the pod-scoped RUNPOD_API_KEY.
+    # Auxiliary/internal info only (this pod's own rate) - NOT used for
+    # estimated_hours_remaining. REST API v1 (rest.runpod.io/v1) is
+    # deprecated (sunset 2026-11-15) and returns a blanket 403 for RunPod's
+    # own pod-scoped keys. REST API v2 replaces costPerHr with an
+    # equivalently-defined "cost" field ("Current cost in USD per hour") and
+    # DOES work with a pod-scoped key for its own pod.
+    if pod_id and api_key:
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                headers = {"Authorization": f"Bearer {api_key}"}
+                async with session.get(f"https://api.runpod.io/v2/pods/{pod_id}", headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        cost_per_hour = data.get("cost")
                     else:
-                        balance = (data.get("data") or {}).get("myself", {}).get("clientBalance")
-                else:
-                    errors.append(f"balance: HTTP {response.status}")
-    except Exception as exc:
-        errors.append(f"balance: {exc}")
+                        errors.append(f"cost_per_hour: HTTP {response.status}")
+        except Exception as exc:
+            errors.append(f"cost_per_hour: {exc}")
+    else:
+        errors.append("cost_per_hour: RUNPOD_POD_ID or RUNPOD_API_KEY missing")
+
+    # balance + spend_rate: GraphQL myself.clientBalance / currentSpendPerHr,
+    # using the account-scope RUNPOD_BILLING_API_KEY. This key is not
+    # auto-injected - if it isn't set, both (and therefore
+    # estimated_hours_remaining) fall back to null and only cost_per_hour is
+    # shown.
+    if billing_api_key:
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                headers = {"Authorization": f"Bearer {billing_api_key}"}
+                query = {"query": "query { myself { clientBalance currentSpendPerHr } }"}
+                async with session.post("https://api.runpod.io/graphql", headers=headers, json=query) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if data.get("errors"):
+                            errors.append("balance: " + "; ".join(e.get("message", "error") for e in data["errors"]))
+                        else:
+                            myself = (data.get("data") or {}).get("myself") or {}
+                            balance = myself.get("clientBalance")
+                            spend_rate = myself.get("currentSpendPerHr")
+                    else:
+                        errors.append(f"balance: HTTP {response.status}")
+        except Exception as exc:
+            errors.append(f"balance: {exc}")
+    else:
+        errors.append("balance: RUNPOD_BILLING_API_KEY not set")
 
     estimated_hours_remaining = None
-    if isinstance(balance, (int, float)) and isinstance(cost_per_hour, (int, float)) and cost_per_hour > 0:
-        estimated_hours_remaining = balance / cost_per_hour
+    if isinstance(balance, (int, float)) and isinstance(spend_rate, (int, float)) and spend_rate > 0:
+        estimated_hours_remaining = balance / spend_rate
 
     return web.json_response({
         "ok": balance is not None or cost_per_hour is not None,
         "balance": balance,
-        "cost_per_hour": cost_per_hour,
+        "spend_rate": spend_rate,
         "estimated_hours_remaining": estimated_hours_remaining,
+        "cost_per_hour": cost_per_hour,  # this pod only - auxiliary info, not used above
         "approximate": True,  # other pods/storage on the same account also draw from this balance
         "error": "; ".join(errors) if errors else None,
     })
