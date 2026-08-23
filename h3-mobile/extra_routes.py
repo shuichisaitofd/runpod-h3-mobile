@@ -51,6 +51,80 @@ async def h3_mobile_pod_runtime(request):
         return web.json_response({"ok": False, "source": "runpod", "error": str(exc)})
 
 
+# Header balance/cost display (feature request: show account balance, an
+# estimated remaining runtime, and the current hourly rate). Two separate
+# RunPod endpoints are needed: REST v2 for this pod's cost-per-hour, and the
+# GraphQL API for the account balance (REST v2 has no balance field as of
+# 2026-08). Either call can fail independently (e.g. a pod-scoped API key -
+# what RunPod auto-injects as RUNPOD_API_KEY - can read its own pod's cost
+# via REST v2 but gets GraphQL "Unauthorized", since GraphQL access is a
+# separate, broader permission) - each field degrades to null on its own
+# rather than failing the whole response, so the frontend can show whatever
+# partial data is available instead of an all-or-nothing dash.
+@routes.get("/h3-mobile/api/pod-billing")
+async def h3_mobile_pod_billing(request):
+    pod_id = os.environ.get("RUNPOD_POD_ID")
+    api_key = os.environ.get("RUNPOD_API_KEY")
+    if not pod_id or not api_key:
+        return web.json_response({"balance": None, "cost_per_hour": None, "estimated_hours_remaining": None, "error": "RunPod metadata unavailable (pod id or API key missing)"})
+
+    timeout = aiohttp.ClientTimeout(total=15)
+    headers = {"Authorization": f"Bearer {api_key}"}
+    cost_per_hour = None
+    balance = None
+    errors = []
+
+    # REST API v1 (rest.runpod.io/v1) is deprecated (sunset 2026-11-15) and
+    # returns a blanket 403 for RunPod's own pod-scoped keys (the key every
+    # pod gets auto-injected as RUNPOD_API_KEY). REST API v2 replaces
+    # costPerHr with an equivalently-defined "cost" field ("Current cost in
+    # USD per hour") and DOES work with a pod-scoped key for its own pod.
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(f"https://api.runpod.io/v2/pods/{pod_id}", headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    cost_per_hour = data.get("cost")
+                else:
+                    errors.append(f"cost_per_hour: HTTP {response.status}")
+    except Exception as exc:
+        errors.append(f"cost_per_hour: {exc}")
+
+    # Account credit balance has no REST v2 equivalent yet (checked against
+    # the v2 OpenAPI spec, 2026-08) - only GraphQL's myself.clientBalance
+    # exposes it, and it needs the key's separate "GraphQL access"
+    # permission, which is distinct from (and usually narrower than) REST
+    # endpoint permissions - a pod-scoped key can read its own pod's cost via
+    # REST v2 while still getting GraphQL "Unauthorized".
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            query = {"query": "query { myself { clientBalance } }"}
+            async with session.post("https://api.runpod.io/graphql", headers=headers, json=query) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data.get("errors"):
+                        errors.append("balance: " + "; ".join(e.get("message", "error") for e in data["errors"]))
+                    else:
+                        balance = (data.get("data") or {}).get("myself", {}).get("clientBalance")
+                else:
+                    errors.append(f"balance: HTTP {response.status}")
+    except Exception as exc:
+        errors.append(f"balance: {exc}")
+
+    estimated_hours_remaining = None
+    if isinstance(balance, (int, float)) and isinstance(cost_per_hour, (int, float)) and cost_per_hour > 0:
+        estimated_hours_remaining = balance / cost_per_hour
+
+    return web.json_response({
+        "ok": balance is not None or cost_per_hour is not None,
+        "balance": balance,
+        "cost_per_hour": cost_per_hour,
+        "estimated_hours_remaining": estimated_hours_remaining,
+        "approximate": True,  # other pods/storage on the same account also draw from this balance
+        "error": "; ".join(errors) if errors else None,
+    })
+
+
 # filepath -> (mtime_ns, size, sha256_hex). ComfyUI's own /upload/image only
 # dedupes an upload against an existing file of the SAME filename (and only
 # when overwrite is not set) — it never compares content across different
@@ -177,6 +251,11 @@ async def h3_mobile_history_thumbnails_js(request):
 @routes.get("/h3-mobile/pod-runtime.js")
 async def h3_mobile_pod_runtime_js(request):
     return web.FileResponse(WEB_DIR / "pod-runtime.js")
+
+
+@routes.get("/h3-mobile/pod-billing.js")
+async def h3_mobile_pod_billing_js(request):
+    return web.FileResponse(WEB_DIR / "pod-billing.js")
 
 
 @routes.get("/h3-mobile/prompt-library.js")

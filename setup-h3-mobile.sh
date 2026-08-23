@@ -173,6 +173,74 @@ install_node_pinned \
   "https://github.com/Saganaki22/ComfyUI-sol-attn.git" \
   "930a4d6e432ff8b8ed5e30ff2f72519b92d69bdf" || true
 
+install_node_pinned \
+  "ComfyUI-PlagueKind-Nodes" \
+  "https://github.com/PlagueKind/ComfyUI-PlagueKind-Nodes.git" \
+  "6ca3037bd16dc143b6d461c67c87a28ca8074063" || true
+
+# ------------------------------------------------------------------
+# Ref2VA 05 (SLA Attention + Balanced BlockCache) co-existence patch.
+#
+# ComfyUI-PlagueKind-Nodes' SLA attention wrapper re-invokes the wrapped
+# forward function via executor.original(...) instead of executor(...).
+# That call bypasses any OTHER wrapper chained onto the same hook - in
+# particular Ref2VA's Balanced BlockCache node - instead of composing with
+# it, so SLA and BlockCache silently stop co-existing correctly.
+#
+# This is a third-party repository we do not control, so this step never
+# blind-overwrites the file: it only edits sla/patch.py when the exact
+# known-unpatched text is found unmodified, does nothing if the fix is
+# already present (safe to run on every startup), and only warns (never
+# force-edits) if the file doesn't match either known state - e.g. after an
+# upstream release changes this code path.
+# ------------------------------------------------------------------
+SLA_PATCH="$CUSTOM/ComfyUI-PlagueKind-Nodes/ComfyUI-H3-SLA-Attention/sla/patch.py"
+if [ -f "$SLA_PATCH" ]; then
+    python3 - "$SLA_PATCH" <<'PY_SLA'
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text()
+
+OLD = (
+    "        out = executor.original(x, timestep, context,\n"
+    "                                transformer_options=transformer_options,\n"
+    "                                **kwargs)"
+)
+NEW = (
+    "        out = executor(x, timestep, context,\n"
+    "                       transformer_options=transformer_options,\n"
+    "                       **kwargs)"
+)
+
+if NEW in text:
+    print("OK: SLA + Balanced BlockCache co-existence patch already present")
+elif OLD in text:
+    backup_dir = path.parent / "_backup"
+    backup_dir.mkdir(exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    (backup_dir / f"patch.py.orig.{stamp}").write_text(text)
+    path.write_text(text.replace(OLD, NEW, 1))
+    print("OK: applied SLA + Balanced BlockCache co-existence patch (executor.original -> executor)")
+else:
+    print("[WARN] sla/patch.py matched neither the known-good nor known-bad text.")
+    print("[WARN] Skipping the SLA/BlockCache co-existence patch - upstream file has changed.")
+    print("[WARN] SLA Attention alone is unaffected; combining it with Balanced BlockCache may not work correctly.")
+PY_SLA
+else
+    echo "[WARN] sla/patch.py not found at $SLA_PATCH - ComfyUI-PlagueKind-Nodes clone may have failed."
+fi
+
+if [ "$H3_CU130_HOST_OK" -eq 1 ]; then
+    if python3 -c "import triton" >/dev/null 2>&1; then
+        echo "OK: Triton available for SLA Attention ($(python3 -c 'import triton; print(triton.__version__)' 2>/dev/null))"
+    else
+        echo "[WARN] Triton not importable - SLA Attention (Ref2VA 05) will not load. It normally ships with the torch cu130 install above."
+    fi
+fi
+
 # ------------------------------------------------------------------
 # SageAttention 2.2.0 - only on validated CUDA 13 host.
 # ------------------------------------------------------------------
@@ -281,8 +349,18 @@ install_mobile_file() {
 }
 
 install_mobile_file "__init__.py" || true
+install_mobile_file "extra_routes.py" || true
 install_mobile_file "web/index.html" || true
 install_mobile_file "web/app.js" || true
+install_mobile_file "web/batch.js" || true
+install_mobile_file "web/batch-v2.js" || true
+install_mobile_file "web/copy-prompts.js" || true
+install_mobile_file "web/history-autoplay.js" || true
+install_mobile_file "web/history-thumbnails.js" || true
+install_mobile_file "web/media-library.js" || true
+install_mobile_file "web/pod-runtime.js" || true
+install_mobile_file "web/pod-billing.js" || true
+install_mobile_file "web/prompt-library.js" || true
 install_mobile_file "web/styles.css" || true
 
 install_api_workflow() {
@@ -300,6 +378,9 @@ install_api_workflow() {
 
 install_api_workflow "i2v" || true
 install_api_workflow "ref2va" || true
+install_api_workflow "ref2va_03" || true
+install_api_workflow "ref2va_04" || true
+install_api_workflow "ref2va_05" || true
 
 RAW_BASE="https://raw.githubusercontent.com/shuichisaitofd/runpod-h3-mobile/main/workflows"
 install_workflow() {

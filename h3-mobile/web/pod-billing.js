@@ -16,8 +16,8 @@
       return;
     }
     const balance=data.balance!=null?fmtMoney(data.balance):'--';
-    const remain=data.remaining_hours!=null?fmtHours(data.remaining_hours):'--';
-    const rate=data.cost_per_hr!=null?fmtMoney(data.cost_per_hr)+'/h':'--';
+    const remain=data.estimated_hours_remaining!=null?fmtHours(data.estimated_hours_remaining):'--';
+    const rate=data.cost_per_hour!=null?fmtMoney(data.cost_per_hour)+'/h':'--';
     // "概算" ("approximate") because other pods/storage on the same account
     // also draw from this balance, so remaining-time is only ever an estimate.
     el.textContent=`残高 ${balance} / 概算残り ${remain} / ${rate}`;
