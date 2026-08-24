@@ -18,6 +18,8 @@ API_WORKFLOWS = {
     "ref2va_04": BASE_DIR / "api_workflows" / "ref2va_04.json",
     "ref2va_03": BASE_DIR / "api_workflows" / "ref2va_03.json",
     "ref2va_05": BASE_DIR / "api_workflows" / "ref2va_05.json",
+    "ref2va_06_fast": BASE_DIR / "api_workflows" / "ref2va_06_fast.json",
+    "ref2va_06_stable": BASE_DIR / "api_workflows" / "ref2va_06_stable.json",
 }
 COMFYUI_DIR = BASE_DIR.parent.parent
 MODELS_DIR = COMFYUI_DIR / "models"

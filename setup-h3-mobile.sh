@@ -381,6 +381,8 @@ install_api_workflow "ref2va" || true
 install_api_workflow "ref2va_03" || true
 install_api_workflow "ref2va_04" || true
 install_api_workflow "ref2va_05" || true
+install_api_workflow "ref2va_06_fast" || true
+install_api_workflow "ref2va_06_stable" || true
 
 RAW_BASE="https://raw.githubusercontent.com/shuichisaitofd/runpod-h3-mobile/main/workflows"
 install_workflow() {
