@@ -9,6 +9,7 @@ on:
       - run.sh
       - h3-mobile/**
       - workflows/**
+      - tests/**
       - .github/workflows/build-h3-image.yml
 
 permissions:
@@ -21,6 +22,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate Ref2VA 06 features
+        run: python3 tests/validate_ref2va06.py
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
