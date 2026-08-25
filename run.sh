@@ -53,27 +53,23 @@ fi
 
 echo "[H3] Runtime OK: CUDA 13 / Torch cu130 / SageAttention / SM86"
 
-# H3 Mobile billing key priority:
-#   1) RUNPOD_BILLING_API_KEY injected by the RunPod Template/Secret environment
-#   2) /workspace/.secrets/runpod_billing.env as a fallback for the same Pod
-# The /workspace fallback does NOT survive a terminated Pod, so long-term
-# reproducibility requires the Template/Secret environment variable.
+# Billing account credentials are now browser-managed by default. The mobile UI
+# keeps account keys in that browser and POSTs them transiently to the current
+# Pod only for the balance/currentSpendPerHr request. Nothing needs to be stored
+# in /workspace for normal operation. Keep the old environment/file path only as
+# a backwards-compatible fallback for existing deployments.
 H3_BILLING_ENV_FILE="/workspace/.secrets/runpod_billing.env"
 if [ -n "${RUNPOD_BILLING_API_KEY:-}" ]; then
-  echo "[H3] RUNPOD_BILLING_API_KEY is present in the Pod environment."
+  echo "[H3] Legacy RUNPOD_BILLING_API_KEY environment fallback is available."
 elif [ -f "$H3_BILLING_ENV_FILE" ]; then
   set -a
   source "$H3_BILLING_ENV_FILE"
   set +a
   if [ -n "${RUNPOD_BILLING_API_KEY:-}" ]; then
-    echo "[H3] Loaded RUNPOD_BILLING_API_KEY from $H3_BILLING_ENV_FILE"
-  else
-    echo "[H3][BILLING_KEY_MISSING] $H3_BILLING_ENV_FILE exists but did not define RUNPOD_BILLING_API_KEY."
+    echo "[H3] Loaded legacy billing-key fallback from $H3_BILLING_ENV_FILE"
   fi
 else
-  echo "[H3][BILLING_KEY_MISSING] RUNPOD_BILLING_API_KEY is not configured."
-  echo "[H3][BILLING_KEY_MISSING] Balance/remaining-time display will be unavailable; pod cost can still be shown."
-  echo "[H3][BILLING_KEY_MISSING] For future Pods, inject RUNPOD_BILLING_API_KEY via the RunPod Template/Secret environment."
+  echo "[H3] Billing account key will be supplied by H3 Mobile browser storage when configured."
 fi
 
 echo "[H3] Starting standard RunPod ComfyUI services..."
