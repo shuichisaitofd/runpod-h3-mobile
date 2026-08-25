@@ -37,6 +37,7 @@ USER root
 ARG TURBO_COMMIT=4274783a23afcfdbea3b4876cb79effd6c510785
 ARG SPECTRUM_COMMIT=6a3d14f89cc717abf9815f51d0a599080a3321a6
 ARG SOL_COMMIT=930a4d6e432ff8b8ed5e30ff2f72519b92d69bdf
+ARG PLAGUEKIND_COMMIT=6ca3037bd16dc143b6d461c67c87a28ca8074063
 
 # SageAttention is compiled once during image build, not on every Pod boot.
 COPY --from=sage-builder /wheelhouse/ /tmp/wheelhouse/
@@ -61,20 +62,64 @@ RUN set -eux; \
     cd /opt/comfyui-baked/custom_nodes; \
     test -d ComfyUI-KJNodes; \
     echo "Using KJNodes baked into pinned RunPod base: $(git -C ComfyUI-KJNodes rev-parse HEAD 2>/dev/null || echo baked-copy)"; \
-    rm -rf ComfyUI-MiniMax-H3-Turbo ComfyUI-Spectrum-MiniMax-H3 ComfyUI-sol-attn; \
+    rm -rf ComfyUI-MiniMax-H3-Turbo ComfyUI-Spectrum-MiniMax-H3 ComfyUI-sol-attn ComfyUI-PlagueKind-Nodes; \
     git clone https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo.git ComfyUI-MiniMax-H3-Turbo; \
     git -C ComfyUI-MiniMax-H3-Turbo checkout --detach "$TURBO_COMMIT"; \
     git clone https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3.git ComfyUI-Spectrum-MiniMax-H3; \
     git -C ComfyUI-Spectrum-MiniMax-H3 checkout --detach "$SPECTRUM_COMMIT"; \
     git clone https://github.com/Saganaki22/ComfyUI-sol-attn.git ComfyUI-sol-attn; \
-    git -C ComfyUI-sol-attn checkout --detach "$SOL_COMMIT"
+    git -C ComfyUI-sol-attn checkout --detach "$SOL_COMMIT"; \
+    git clone https://github.com/PlagueKind/ComfyUI-PlagueKind-Nodes.git ComfyUI-PlagueKind-Nodes; \
+    git -C ComfyUI-PlagueKind-Nodes checkout --detach "$PLAGUEKIND_COMMIT"
+
+# Apply the verified SLA + Balanced BlockCache wrapper-chain compatibility patch
+# at image build time, then fail the build if the SLA node is missing or the
+# expected source text has drifted. This prevents a Pod from booting with 05/06
+# workflows present but H3SLAAttention unavailable.
+RUN python3.12 - <<'PY'
+from pathlib import Path
+
+root = Path('/opt/comfyui-baked/custom_nodes/ComfyUI-PlagueKind-Nodes')
+sla_node = root / 'ComfyUI-H3-SLA-Attention' / 'sla_node.py'
+patch = root / 'ComfyUI-H3-SLA-Attention' / 'sla' / 'patch.py'
+
+assert sla_node.is_file(), f'Missing SLA node: {sla_node}'
+assert patch.is_file(), f'Missing SLA patch file: {patch}'
+
+text = patch.read_text()
+old = (
+    "        out = executor.original(x, timestep, context,\n"
+    "                                transformer_options=transformer_options,\n"
+    "                                **kwargs)"
+)
+new = (
+    "        out = executor(x, timestep, context,\n"
+    "                       transformer_options=transformer_options,\n"
+    "                       **kwargs)"
+)
+
+if new in text:
+    pass
+elif old in text:
+    patch.write_text(text.replace(old, new, 1))
+else:
+    raise RuntimeError('PlagueKind SLA patch.py matched neither known patched nor unpatched source')
+
+assert new in patch.read_text(), 'SLA wrapper-chain compatibility patch was not applied'
+print('PlagueKind SLA build validation OK:', sla_node)
+PY
+
+RUN python3.12 -m py_compile \
+    /opt/comfyui-baked/custom_nodes/ComfyUI-PlagueKind-Nodes/ComfyUI-H3-SLA-Attention/sla_node.py \
+    /opt/comfyui-baked/custom_nodes/ComfyUI-PlagueKind-Nodes/ComfyUI-H3-SLA-Attention/sla/patch.py
 
 # Install custom-node Python requirements at build time only.
 RUN set -eux; \
     for req in \
       /opt/comfyui-baked/custom_nodes/ComfyUI-MiniMax-H3-Turbo/requirements.txt \
       /opt/comfyui-baked/custom_nodes/ComfyUI-Spectrum-MiniMax-H3/requirements.txt \
-      /opt/comfyui-baked/custom_nodes/ComfyUI-sol-attn/requirements.txt; do \
+      /opt/comfyui-baked/custom_nodes/ComfyUI-sol-attn/requirements.txt \
+      /opt/comfyui-baked/custom_nodes/ComfyUI-PlagueKind-Nodes/requirements.txt; do \
         if [ -f "$req" ]; then \
           PIP_CONSTRAINT=/opt/comfyui-runtime-constraints.txt python3.12 -m pip install --no-cache-dir -r "$req"; \
         fi; \
