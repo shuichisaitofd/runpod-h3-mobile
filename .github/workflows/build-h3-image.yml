@@ -26,6 +26,9 @@ jobs:
       - name: Validate Ref2VA 06 features
         run: python3 tests/validate_ref2va06.py
 
+      - name: Validate runtime and billing features
+        run: python3 tests/validate_runtime_billing.py
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
