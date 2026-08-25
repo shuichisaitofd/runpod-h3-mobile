@@ -51,47 +51,26 @@ async def h3_mobile_pod_runtime(request):
         return web.json_response({"ok": False, "source": "runpod", "error": str(exc)})
 
 
-# Header balance/cost display (feature request: show account balance, an
-# estimated remaining runtime, and the current account-wide spend rate).
-# Two separate RunPod endpoints AND two separate keys are needed:
-#   - RUNPOD_API_KEY is the pod-scoped key RunPod auto-injects into every
-#     pod. Per RunPod's docs it is scoped to that pod, so it can read this
-#     pod's own cost via REST v2 but gets GraphQL "Unauthorized" when asked
-#     for account-level data - it is used for cost_per_hour (this pod only)
-#     ONLY, kept as auxiliary/internal info and NOT used for the remaining-
-#     time estimate below.
-#   - RUNPOD_BILLING_API_KEY is a separate, manually-configured account-scope
-#     key (not auto-injected) used for the GraphQL balance/spend_rate query
-#     ONLY.
-# estimated_hours_remaining is balance / spend_rate, where spend_rate is
-# GraphQL's currentSpendPerHr (the account's current total burn rate across
-# ALL pods/storage, not just this one) - this is what matches RunPod's own
-# "Estimated time left" figure, confirmed 2026-08-23. This pod's own
-# cost_per_hour is a different, smaller number when other resources are
-# also running on the account, so it is deliberately excluded from the
-# estimate.
-# Each field/key pair fails independently and degrades to null on its own,
-# so the frontend can show whatever partial data is available instead of an
-# all-or-nothing dash.
-@routes.get("/h3-mobile/api/pod-billing")
-async def h3_mobile_pod_billing(request):
+# Header balance/cost display.
+# RUNPOD_API_KEY is the pod-scoped key RunPod injects and is used only for
+# this pod's own hourly cost. Account balance/currentSpendPerHr require an
+# account-scope key. That key can come from either:
+#   1) the browser, POSTed transiently as form field billing_api_key, or
+#   2) legacy RUNPOD_BILLING_API_KEY env var.
+# Browser mode deliberately does NOT write the account key to the Pod filesystem
+# or process environment. It exists only for the lifetime of this request.
+async def _h3_mobile_pod_billing_response(billing_api_key=None):
     pod_id = os.environ.get("RUNPOD_POD_ID")
     api_key = os.environ.get("RUNPOD_API_KEY")
-    billing_api_key = os.environ.get("RUNPOD_BILLING_API_KEY")
+    billing_api_key = (billing_api_key or os.environ.get("RUNPOD_BILLING_API_KEY") or "").strip()
 
     timeout = aiohttp.ClientTimeout(total=15)
     cost_per_hour = None
     balance = None
     spend_rate = None
+    account_id = None
     errors = []
 
-    # cost_per_hour: REST API v2, using the pod-scoped RUNPOD_API_KEY.
-    # Auxiliary/internal info only (this pod's own rate) - NOT used for
-    # estimated_hours_remaining. REST API v1 (rest.runpod.io/v1) is
-    # deprecated (sunset 2026-11-15) and returns a blanket 403 for RunPod's
-    # own pod-scoped keys. REST API v2 replaces costPerHr with an
-    # equivalently-defined "cost" field ("Current cost in USD per hour") and
-    # DOES work with a pod-scoped key for its own pod.
     if pod_id and api_key:
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -107,16 +86,11 @@ async def h3_mobile_pod_billing(request):
     else:
         errors.append("cost_per_hour: RUNPOD_POD_ID or RUNPOD_API_KEY missing")
 
-    # balance + spend_rate: GraphQL myself.clientBalance / currentSpendPerHr,
-    # using the account-scope RUNPOD_BILLING_API_KEY. This key is not
-    # auto-injected - if it isn't set, both (and therefore
-    # estimated_hours_remaining) fall back to null and only cost_per_hour is
-    # shown.
     if billing_api_key:
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 headers = {"Authorization": f"Bearer {billing_api_key}"}
-                query = {"query": "query { myself { clientBalance currentSpendPerHr } }"}
+                query = {"query": "query { myself { id clientBalance currentSpendPerHr } }"}
                 async with session.post("https://api.runpod.io/graphql", headers=headers, json=query) as response:
                     if response.status == 200:
                         data = await response.json()
@@ -124,6 +98,7 @@ async def h3_mobile_pod_billing(request):
                             errors.append("balance: " + "; ".join(e.get("message", "error") for e in data["errors"]))
                         else:
                             myself = (data.get("data") or {}).get("myself") or {}
+                            account_id = myself.get("id")
                             balance = myself.get("clientBalance")
                             spend_rate = myself.get("currentSpendPerHr")
                     else:
@@ -131,7 +106,7 @@ async def h3_mobile_pod_billing(request):
         except Exception as exc:
             errors.append(f"balance: {exc}")
     else:
-        errors.append("balance: RUNPOD_BILLING_API_KEY not set")
+        errors.append("balance: account API key not provided")
 
     estimated_hours_remaining = None
     if isinstance(balance, (int, float)) and isinstance(spend_rate, (int, float)) and spend_rate > 0:
@@ -139,13 +114,35 @@ async def h3_mobile_pod_billing(request):
 
     return web.json_response({
         "ok": balance is not None or cost_per_hour is not None,
+        "account_id": account_id,
         "balance": balance,
         "spend_rate": spend_rate,
         "estimated_hours_remaining": estimated_hours_remaining,
-        "cost_per_hour": cost_per_hour,  # this pod only - auxiliary info, not used above
-        "approximate": True,  # other pods/storage on the same account also draw from this balance
+        "cost_per_hour": cost_per_hour,
+        "approximate": True,
         "error": "; ".join(errors) if errors else None,
     })
+
+
+@routes.get("/h3-mobile/api/pod-billing")
+async def h3_mobile_pod_billing(request):
+    # Backward-compatible path for legacy Pod-side env configuration.
+    return await _h3_mobile_pod_billing_response()
+
+
+@routes.post("/h3-mobile/api/pod-billing")
+async def h3_mobile_pod_billing_browser(request):
+    # application/x-www-form-urlencoded keeps cross-origin GitHub Pages -> Pod
+    # requests simple (no custom auth header and no key in URL/query logs).
+    # Never persist or echo the supplied key.
+    try:
+        form = await request.post()
+    except Exception:
+        raise web.HTTPBadRequest(text="invalid form body")
+    billing_api_key = (form.get("billing_api_key") or "").strip()
+    if len(billing_api_key) > 4096:
+        raise web.HTTPBadRequest(text="billing_api_key too long")
+    return await _h3_mobile_pod_billing_response(billing_api_key)
 
 
 # filepath -> (mtime_ns, size, sha256_hex). ComfyUI's own /upload/image only
