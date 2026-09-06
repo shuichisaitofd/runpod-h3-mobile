@@ -72,6 +72,19 @@ else
   echo "[H3] Billing account key will be supplied by H3 Mobile browser storage when configured."
 fi
 
+
+# Dynamic LoRA manager routes live under web/ so Dockerfile's existing
+# COPY h3-mobile/web/ rule bakes them without changing the production copy list.
+# Register the routes in both the baked copy and an already-materialized
+# /workspace copy (when present). The operation is idempotent.
+for H3_MOBILE_INIT in \
+  /opt/comfyui-baked/custom_nodes/ComfyUI-H3-Mobile/__init__.py \
+  /workspace/runpod-slim/ComfyUI/custom_nodes/ComfyUI-H3-Mobile/__init__.py; do
+  if [ -f "$H3_MOBILE_INIT" ] && ! grep -Fq "from .web import lora_routes" "$H3_MOBILE_INIT"; then
+    printf '\nfrom .web import lora_routes  # register dynamic LoRA manager endpoints\n' >> "$H3_MOBILE_INIT"
+  fi
+done
+
 echo "[H3] Starting standard RunPod ComfyUI services..."
 
 exec /start.sh "$@"

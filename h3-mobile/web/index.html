@@ -69,6 +69,7 @@
 <script src="media-library.js"></script>
 <script src="pod-runtime.js"></script>
 <script src="pod-billing.js"></script>
+<script src="lora-library.js"></script>
 <script>
 // Stop single-job timers when ComfyUI history reports completion, and freeze the final generation time.
 (()=>{function setStatus(card,text){if(!card)return;const spans=[...card.querySelectorAll('.meta span')];const status=spans.find(x=>/^(準備中|待機中|実行中|完了|失敗)$/.test((x.textContent||'').trim()));if(status){status.textContent=text;status.className=`job-status ${typeof h3StatusClass==='function'?h3StatusClass(text):''}`.trim();}}function terminal(item){const msgs=item?.status?.messages;if(Array.isArray(msgs)){for(const m of msgs){if(Array.isArray(m)&&['execution_success','execution_error','execution_interrupted'].includes(m[0]))return m[0];}}if(item?.status?.completed===true)return 'execution_success';const outputs=item?.outputs||{};const hasOutput=Object.values(outputs).some(node=>['videos','images','gifs','files','audio'].some(k=>Array.isArray(node?.[k])&&node[k].length));return hasOutput?'execution_success':null;}function secondsFrom(item,fallback){if(typeof historyExecutionSeconds==='function'){const s=historyExecutionSeconds(item);if(s!=null)return s;}return fallback;}function au(path){return typeof apiUrl==='function'?apiUrl(path):path;}

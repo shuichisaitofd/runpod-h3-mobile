@@ -28,6 +28,9 @@ jobs:
       - name: Validate LoRA mobile test edition
         run: python3 tests/validate_lora_mobile_test.py
 
+      - name: Validate dynamic LoRA library
+        run: python3 tests/validate_lora_library.py
+
       - name: Validate Ref2VA 06 features
         run: python3 tests/validate_ref2va06.py
 
