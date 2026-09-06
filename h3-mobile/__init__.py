@@ -48,8 +48,8 @@ MODEL_SPECS = {
     "video_vae": {"label": "MiniMax H3 video VAE FP16", "url": f"{HF_H3}/vae/minimax_h3_video_vae_fp16.safetensors", "path": MODELS_DIR / "vae" / "minimax_h3_video_vae_fp16.safetensors"},
     "audio_vae": {"label": "MiniMax H3 audio VAE FP32", "url": f"{HF_H3}/vae/minimax_h3_audio_vae_fp32.safetensors", "path": MODELS_DIR / "vae" / "minimax_h3_audio_vae_fp32.safetensors"},
     "turbo_lora": {"label": "MiniMax H3 Turbo LoRA v4 step600 EMA", "url": "https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora/resolve/main/minimax_h3_turbo_v4_step600_ema.safetensors", "path": MODELS_DIR / "loras" / "minimax_h3_turbo_v4_step600_ema.safetensors"},
-    "ref2va_aio_lora": {"label": "Ref2VA HMNSFW AIO V2.5 LoRA", "url": "https://civarchive.com/api/download/models/3268303", "path": MODELS_DIR / "loras" / "HMNSFW-AIO-V2.5.safetensors", "sha256": "a07732a84fd733085eb5d910f602f918fa7a3658117116927e4329f5951a9d2d"},
-    "ref2va_motion_booster_lora": {"label": "Ref2VA H3 Motion Booster V2 LoRA", "url": "https://civarchive.com/api/download/models/3228867", "path": MODELS_DIR / "loras" / "H3_Motion_BoosterV2.safetensors", "sha256": "f6a6897162b921d2b74abe1fdebcd80c8189147e70e0e0738200756c250336c3"},
+    "ref2va_aio_lora": {"label": "Ref2VA HMNSFW AIO V2.5 LoRA", "url": "https://huggingface.co/Hearmeman/minimax-h3-loras/resolve/main/HMNSFW-AIO-V2.5.safetensors", "path": MODELS_DIR / "loras" / "HMNSFW-AIO-V2.5.safetensors", "sha256": "a07732a84fd733085eb5d910f602f918fa7a3658117116927e4329f5951a9d2d"},
+    "ref2va_motion_booster_lora": {"label": "Ref2VA H3 Motion Booster V2 LoRA", "url": "https://huggingface.co/bilmemne13/1/resolve/main/H3_Motion_BoosterV2.safetensors", "path": MODELS_DIR / "loras" / "H3_Motion_BoosterV2.safetensors", "sha256": "f6a6897162b921d2b74abe1fdebcd80c8189147e70e0e0738200756c250336c3"},
 }
 MODE_SETS = {"ref2va": ["ref2va", "qwen", "video_vae", "audio_vae", "turbo_lora", "ref2va_aio_lora", "ref2va_motion_booster_lora"], "i2v": ["fl2va", "qwen", "video_vae", "audio_vae", "turbo_lora"]}
 _download_tasks = {}

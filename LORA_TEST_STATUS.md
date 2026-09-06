@@ -1,6 +1,6 @@
 # H3 Mobile LoRA Test Status
 
-- State: VERIFIED
+- State: RUNNING
 - Branch: `codex/h3-lora-mobile-test`
 - Base SHA: `04f1d4f2827f055a79ac88ccc0c9f35a81996ab2`
 - Pod real-device test: NOT STARTED
@@ -27,8 +27,8 @@ No shift input exists in these workflows. Their `BasicGuider` nodes have no CFG 
 
 | Filename | Strength | Download URL | SHA256 |
 | --- | ---: | --- | --- |
-| `HMNSFW-AIO-V2.5.safetensors` | 0.40 | `https://civarchive.com/api/download/models/3268303` | `a07732a84fd733085eb5d910f602f918fa7a3658117116927e4329f5951a9d2d` |
-| `H3_Motion_BoosterV2.safetensors` | 0.50 | `https://civarchive.com/api/download/models/3228867` | `f6a6897162b921d2b74abe1fdebcd80c8189147e70e0e0738200756c250336c3` |
+| `HMNSFW-AIO-V2.5.safetensors` | 0.40 | `https://huggingface.co/Hearmeman/minimax-h3-loras/resolve/main/HMNSFW-AIO-V2.5.safetensors` | `a07732a84fd733085eb5d910f602f918fa7a3658117116927e4329f5951a9d2d` |
+| `H3_Motion_BoosterV2.safetensors` | 0.50 | `https://huggingface.co/bilmemne13/1/resolve/main/H3_Motion_BoosterV2.safetensors` | `f6a6897162b921d2b74abe1fdebcd80c8189147e70e0e0738200756c250336c3` |
 
 Files are downloaded to `ComfyUI/models/loras/`. Redirects and existing `.part` resume are supported. SHA256 is checked before `.part` is renamed to the formal filename; existing formal files are checked before reuse.
 
@@ -39,6 +39,6 @@ Single and batch Ref2VA generation prepend `dynv2. ` exactly once. A prompt alre
 ## Tests and image
 
 - Offline tests: PASS (`validate_lora_mobile_test.py`, `validate_ref2va06.py`, `validate_runtime_billing.py`)
-- GitHub Actions: PASS ([run 34035057526](https://github.com/shuichisaitofd/runpod-h3-mobile/actions/runs/34035057526))
+- GitHub Actions: NOT STARTED (Hugging Face mirror rebuild)
 - Test image: `ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-lora-test`
 - Production tags `h3-cu130-latest` and `h3-cu130-v4`: unchanged

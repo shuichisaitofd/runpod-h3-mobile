@@ -80,12 +80,13 @@ assert hashlib.sha256(ref03.read_bytes()).hexdigest() == "7b040e3608daefc9e0c68b
 
 init = INIT_PATH.read_text()
 for expected in (
-    "https://civarchive.com/api/download/models/3268303",
-    "https://civarchive.com/api/download/models/3228867",
+    "https://huggingface.co/Hearmeman/minimax-h3-loras/resolve/main/HMNSFW-AIO-V2.5.safetensors",
+    "https://huggingface.co/bilmemne13/1/resolve/main/H3_Motion_BoosterV2.safetensors",
     "a07732a84fd733085eb5d910f602f918fa7a3658117116927e4329f5951a9d2d",
     "f6a6897162b921d2b74abe1fdebcd80c8189147e70e0e0738200756c250336c3",
 ):
     assert init.count(expected) == 1, expected
+assert "civarchive.com" not in init
 assert '"ref2va_aio_lora", "ref2va_motion_booster_lora"' in init
 assert "allow_redirects=True" in init
 assert "await asyncio.to_thread(_verify_sha256, key, tmp)" in init
