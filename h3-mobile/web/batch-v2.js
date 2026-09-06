@@ -148,7 +148,7 @@ async function upload(file,index,slot=0){
 function seedFor(i){const mode=q('#batchSeedMode').value;const base=Number(q('#batchSeed').value)||0;if(mode==='fixed')return base;if(mode==='random')return randSeed();return base+i;}
 function setMsg(text,type=''){const el=q('#batchMessage');el.textContent=text;el.className=`notice ${type}`.trim();el.classList.remove('hidden');}
 function clearMsg(){q('#batchMessage').classList.add('hidden');}
-function applyBatchVariantDefaults(){if(batch.mode!=='ref2va')return;if(batch.refVariant==='03'){q('#batchSteps').value=4;q('#batchModeNote').innerHTML='Ref2VA 03: <b>Turbo LoRA + TurboSampler + Sol-Attn(int8_qk) + FusedModulation</b> / Steps・MP変更可';}else if(batch.refVariant==='05'){q('#batchSteps').value=16;q('#batchModeNote').innerHTML='Ref2VA 05: <b>SLA Attention + BlockCache Balanced</b> / Steps・MP変更可';}else if(batch.refVariant==='fast'){q('#batchSteps').value=16;q('#batchModeNote').innerHTML='Ref2VA 06 高速: <b>SLA Attention + Spectrum(高速設定)</b> / Steps・MP変更可';}else if(batch.refVariant==='stable'){q('#batchSteps').value=16;q('#batchModeNote').innerHTML='Ref2VA 06 安定: <b>SLA Attention + Spectrum(安定設定)</b> / Steps・MP変更可';}else{q('#batchSteps').value=14;q('#batchModeNote').innerHTML='Ref2VA 04: <b>Sol-Attn(int8_qk) + BlockCache Balanced</b> / Steps・MP変更可';}}
+function applyBatchVariantDefaults(){if(batch.mode!=='ref2va')return;if(batch.refVariant==='03'){q('#batchSteps').value=4;q('#batchModeNote').innerHTML='Ref2VA 03: <b>Turbo LoRA + TurboSampler + Sol-Attn(int8_qk) + FusedModulation</b> / Steps・MP変更可';}else if(batch.refVariant==='05'){q('#batchSteps').value=12;q('#batchModeNote').innerHTML='Ref2VA 05 LoRAテスト: <b>AIO 0.40 + Motion Booster 0.50 + SLA Attention + BlockCache Balanced</b> / Euler・Simple・12 steps';}else if(batch.refVariant==='fast'){q('#batchSteps').value=12;q('#batchModeNote').innerHTML='Ref2VA 06 高速 LoRAテスト: <b>AIO 0.40 + Motion Booster 0.50 + SLA Attention + Spectrum(高速設定)</b> / Euler・Simple・12 steps';}else if(batch.refVariant==='stable'){q('#batchSteps').value=12;q('#batchModeNote').innerHTML='Ref2VA 06 安定 LoRAテスト: <b>AIO 0.40 + Motion Booster 0.50 + SLA Attention + Spectrum(安定設定)</b> / Euler・Simple・12 steps';}else{q('#batchSteps').value=12;q('#batchModeNote').innerHTML='Ref2VA 04 LoRAテスト: <b>AIO 0.40 + Motion Booster 0.50 + Sol-Attn(int8_qk) + BlockCache Balanced</b> / Euler・Simple・12 steps';}}
 function setBatchVariant(v){if(batch.submitting)return;batch.refVariant=v;qa('#batchRefVariant [data-batch-variant]').forEach(b=>b.classList.toggle('active',b.dataset.batchVariant===v));applyBatchVariantDefaults();persistBatchMeta();}
 qa('#batchRefVariant [data-batch-variant]').forEach(b=>{if(!b.disabled)b.onclick=()=>setBatchVariant(b.dataset.batchVariant);});
 function setMode(mode){if(batch.submitting)return;batch.mode=mode;qa('[data-batch-mode]').forEach(b=>b.classList.toggle('active',b.dataset.batchMode===mode));const ref=mode==='ref2va';q('#batchI2VInputs').classList.toggle('hidden',ref);q('#batchRefInputs').classList.toggle('hidden',!ref);q('#batchStepsWrap').classList.toggle('hidden',!ref);q('#batchRefOptions').classList.toggle('hidden',!ref);q('#batchRatio').disabled=!ref;if(ref){q('#batchSec').value=6;q('#batchRatio').value='3:4';applyBatchVariantDefaults();}else{q('#batchSec').value=10;q('#batchRatio').value='元画像と同じ';q('#batchModeNote').innerHTML='I2V: <b>Turbo + Sage / 4step固定</b>'; }render();}
@@ -185,13 +185,14 @@ async function queueOne(wf,extra){return jf(au('/prompt'),{method:'POST',headers
 function safe(v){return String(v||'H3').replace(/[\\/:*?\"<>|]+/g,'_').slice(0,80);}
 async function start(){
   if(batch.submitting)return;
-  const prompt=q('#batchPrompt').value.trim();
-  if(!prompt){setMsg('プロンプトを入力してください。','danger');return;}
+  const inputPrompt=q('#batchPrompt').value.trim();
+  if(!inputPrompt){setMsg('プロンプトを入力してください。','danger');return;}
+  const prompt=batch.mode==='ref2va'?ensureRef2VADynv2(inputPrompt):inputPrompt;
   const jobs=batch.mode==='i2v'?batch.i2vFiles.map(f=>({file:f,title:f.name})):batch.refSets.filter(s=>s.files[0]).map((s,i)=>({set:s,title:`参照セット ${i+1}`}));
   if(!jobs.length){setMsg('生成する画像を選択してください。','danger');return;}
   const seconds=Math.max(1,Number(q('#batchSec').value)||1);
   const mp=Math.min(2,Math.max(.1,Number(q('#batchMp').value)||.5));
-  const steps=Math.max(1,Number(q('#batchSteps').value)||(typeof defaultStepsForVariant==='function'?defaultStepsForVariant(batch.refVariant):14));
+  const steps=Math.max(1,Number(q('#batchSteps').value)||(typeof defaultStepsForVariant==='function'?defaultStepsForVariant(batch.refVariant):12));
   const ratio=batch.mode==='i2v'?'元画像と同じ':q('#batchRatio').value;
   const refSize=q('#batchRefSize').value;
   const batchTitle=q('#batchTitle').value.trim()||'一括生成';

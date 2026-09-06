@@ -1,5 +1,6 @@
 from pathlib import Path
 import asyncio
+import hashlib
 import os
 import shutil
 import tempfile
@@ -47,11 +48,62 @@ MODEL_SPECS = {
     "video_vae": {"label": "MiniMax H3 video VAE FP16", "url": f"{HF_H3}/vae/minimax_h3_video_vae_fp16.safetensors", "path": MODELS_DIR / "vae" / "minimax_h3_video_vae_fp16.safetensors"},
     "audio_vae": {"label": "MiniMax H3 audio VAE FP32", "url": f"{HF_H3}/vae/minimax_h3_audio_vae_fp32.safetensors", "path": MODELS_DIR / "vae" / "minimax_h3_audio_vae_fp32.safetensors"},
     "turbo_lora": {"label": "MiniMax H3 Turbo LoRA v4 step600 EMA", "url": "https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora/resolve/main/minimax_h3_turbo_v4_step600_ema.safetensors", "path": MODELS_DIR / "loras" / "minimax_h3_turbo_v4_step600_ema.safetensors"},
+    "ref2va_aio_lora": {"label": "Ref2VA HMNSFW AIO V2.5 LoRA", "url": "https://civarchive.com/api/download/models/3268303", "path": MODELS_DIR / "loras" / "HMNSFW-AIO-V2.5.safetensors", "sha256": "a07732a84fd733085eb5d910f602f918fa7a3658117116927e4329f5951a9d2d"},
+    "ref2va_motion_booster_lora": {"label": "Ref2VA H3 Motion Booster V2 LoRA", "url": "https://civarchive.com/api/download/models/3228867", "path": MODELS_DIR / "loras" / "H3_Motion_BoosterV2.safetensors", "sha256": "f6a6897162b921d2b74abe1fdebcd80c8189147e70e0e0738200756c250336c3"},
 }
-MODE_SETS = {"ref2va": ["ref2va", "qwen", "video_vae", "audio_vae", "turbo_lora"], "i2v": ["fl2va", "qwen", "video_vae", "audio_vae", "turbo_lora"]}
+MODE_SETS = {"ref2va": ["ref2va", "qwen", "video_vae", "audio_vae", "turbo_lora", "ref2va_aio_lora", "ref2va_motion_booster_lora"], "i2v": ["fl2va", "qwen", "video_vae", "audio_vae", "turbo_lora"]}
 _download_tasks = {}
-_download_state = {key: {"status": "installed" if spec["path"].is_file() else "missing", "downloaded": 0, "total": None, "error": None} for key, spec in MODEL_SPECS.items()}
+_verified_files = {}
+_download_state = {
+    key: {
+        # Files with an expected digest are not called installed until they have
+        # actually been verified during this process lifetime.
+        "status": "installed" if spec["path"].is_file() and not spec.get("sha256") else "missing",
+        "downloaded": 0,
+        "total": None,
+        "error": None,
+    }
+    for key, spec in MODEL_SPECS.items()
+}
 routes = PromptServer.instance.routes
+
+
+class SHA256MismatchError(RuntimeError):
+    pass
+
+
+def _file_fingerprint(path):
+    stat = path.stat()
+    return stat.st_size, stat.st_mtime_ns
+
+
+def _is_verified(key):
+    path = MODEL_SPECS[key]["path"]
+    if not path.is_file():
+        return False
+    return _verified_files.get(key) == _file_fingerprint(path)
+
+
+def _model_file_ready(key):
+    spec = MODEL_SPECS[key]
+    path = spec["path"]
+    if not path.is_file() or path.stat().st_size <= 0:
+        return False
+    return _is_verified(key) if spec.get("sha256") else True
+
+
+def _verify_sha256(key, path):
+    expected = MODEL_SPECS[key].get("sha256")
+    if not expected:
+        return
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+    actual = digest.hexdigest()
+    if actual.lower() != expected.lower():
+        raise SHA256MismatchError(f"SHA256 mismatch: expected {expected}, got {actual}")
+    _verified_files[key] = _file_fingerprint(path)
 
 
 def _model_state_payload():
@@ -59,10 +111,12 @@ def _model_state_payload():
     for key, spec in MODEL_SPECS.items():
         state = dict(_download_state[key])
         path = spec["path"]
-        if path.is_file():
+        if _model_file_ready(key):
             state["status"] = "installed"
             state["downloaded"] = path.stat().st_size
             state["total"] = path.stat().st_size
+        elif state["status"] == "installed":
+            state.update(status="missing", downloaded=0, total=None)
         state.update({"key": key, "label": spec["label"], "filename": path.name})
         result[key] = state
     return result
@@ -89,15 +143,19 @@ async def _download_one(key):
     dest = spec["path"]
     tmp = Path(str(dest) + ".part")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if dest.is_file() and dest.stat().st_size > 0:
-        _download_state[key].update(status="installed", downloaded=dest.stat().st_size, total=dest.stat().st_size, error=None)
-        return
     state = _download_state[key]
-    state.update(status="downloading", error=None)
-    existing = tmp.stat().st_size if tmp.is_file() else 0
-    headers = {"Range": f"bytes={existing}-"} if existing else {}
-    timeout = aiohttp.ClientTimeout(total=None, connect=60, sock_read=180)
     try:
+        if dest.is_file() and dest.stat().st_size > 0:
+            size = dest.stat().st_size
+            state.update(status="queued", downloaded=size, total=size, error=None)
+            await asyncio.to_thread(_verify_sha256, key, dest)
+            state.update(status="installed", downloaded=size, total=size, error=None)
+            return
+
+        state.update(status="downloading", error=None)
+        existing = tmp.stat().st_size if tmp.is_file() else 0
+        headers = {"Range": f"bytes={existing}-"} if existing else {}
+        timeout = aiohttp.ClientTimeout(total=None, connect=60, sock_read=180)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(spec["url"], headers=headers, allow_redirects=True) as response:
                 if response.status not in (200, 206):
@@ -114,12 +172,20 @@ async def _download_one(key):
                     async for chunk in response.content.iter_chunked(8 * 1024 * 1024):
                         f.write(chunk)
                         state["downloaded"] += len(chunk)
+        await asyncio.to_thread(_verify_sha256, key, tmp)
         os.replace(tmp, dest)
+        if spec.get("sha256"):
+            _verified_files[key] = _file_fingerprint(dest)
         size = dest.stat().st_size
         state.update(status="installed", downloaded=size, total=size, error=None)
     except asyncio.CancelledError:
         state["status"] = "paused"
         raise
+    except SHA256MismatchError as exc:
+        # Keep a failed .part file as .part; it must never become the formal
+        # model file. An existing formal file is likewise left untouched so
+        # the mismatch remains visible and recoverable to the operator.
+        state.update(status="sha256_error", error=str(exc))
     except Exception as exc:
         state.update(status="error", error=str(exc))
     finally:
@@ -216,8 +282,7 @@ async def h3_mobile_prepare_models(request):
         raise web.HTTPBadRequest(text="mode must be ref2va or i2v")
     started, skipped = [], []
     for key in MODE_SETS[mode]:
-        spec = MODEL_SPECS[key]
-        if spec["path"].is_file() and spec["path"].stat().st_size > 0:
+        if _model_file_ready(key):
             skipped.append(key); continue
         task = _download_tasks.get(key)
         if task and not task.done():

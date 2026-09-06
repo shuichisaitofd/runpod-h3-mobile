@@ -1,0 +1,63 @@
+name: Build H3 LoRA Test Image
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/h3-lora-mobile-test]
+    paths:
+      - Dockerfile
+      - run.sh
+      - h3-mobile/**
+      - workflows/**
+      - tests/**
+      - LORA_TEST_STATUS.md
+      - .github/workflows/build-h3-lora-test-image.yml
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  offline-tests:
+    if: github.ref == 'refs/heads/codex/h3-lora-mobile-test'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate LoRA mobile test edition
+        run: python3 tests/validate_lora_mobile_test.py
+
+      - name: Validate Ref2VA 06 features
+        run: python3 tests/validate_ref2va06.py
+
+      - name: Validate runtime and billing features
+        run: python3 tests/validate_runtime_billing.py
+
+  build-and-push:
+    if: github.ref == 'refs/heads/codex/h3-lora-mobile-test'
+    needs: offline-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push test image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-lora-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
