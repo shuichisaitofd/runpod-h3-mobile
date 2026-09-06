@@ -1,9 +1,10 @@
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 import asyncio
 import hashlib
 import ipaddress
 import os
+import re
 import socket
 
 import aiohttp
@@ -11,13 +12,15 @@ from aiohttp import web
 import folder_paths
 from server import PromptServer
 
-WEB_DIR = Path(__file__).resolve().parent
-_LORA_PATHS = [Path(p) for p in folder_paths.get_folder_paths("loras")]
+
+WEB_DIR = Path(__file__).resolve().parent / "web"
+_LORA_PATHS = [Path(path) for path in folder_paths.get_folder_paths("loras")]
 LORA_DIR = _LORA_PATHS[0] if _LORA_PATHS else Path(folder_paths.models_dir) / "loras"
 LORA_DIR.mkdir(parents=True, exist_ok=True)
 routes = PromptServer.instance.routes
 _DOWNLOAD_TASKS = {}
 _DOWNLOAD_STATE = {}
+_REDIRECT_CODES = {301, 302, 303, 307, 308}
 
 
 def _safe_filename(value: str) -> str:
@@ -32,18 +35,18 @@ def _safe_filename(value: str) -> str:
 
 
 def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(8 * 1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _validate_sha(value: str) -> str:
     value = (value or "").strip().lower()
     if not value:
         return ""
-    if len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
+    if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
         raise web.HTTPBadRequest(text="sha256 must be 64 hex chars")
     return value
 
@@ -76,6 +79,59 @@ async def _validate_public_url(url: str) -> str:
     return url
 
 
+def _request_headers(url: str, api_key: str) -> dict:
+    """Send the browser-held Civitai key only to Civitai-owned hosts."""
+    host = (urlparse(url).hostname or "").lower()
+    key = (api_key or "").strip()
+    if key and (host == "civitai.com" or host.endswith(".civitai.com")):
+        return {"Authorization": f"Bearer {key}"}
+    return {}
+
+
+def _filename_from_response(url: str, content_disposition: str) -> str:
+    name = ""
+    value = content_disposition or ""
+    encoded = re.search(r"filename\*\s*=\s*UTF-8''([^;]+)", value, re.IGNORECASE)
+    plain = re.search(r'filename\s*=\s*(?:"([^"]+)"|([^;]+))', value, re.IGNORECASE)
+    if encoded:
+        name = unquote(encoded.group(1).strip())
+    elif plain:
+        name = (plain.group(1) or plain.group(2) or "").strip()
+    if not name:
+        name = unquote(Path(urlparse(url).path).name)
+    return _safe_filename(name)
+
+
+async def _probe_download(url: str, api_key: str):
+    current_url = url
+    timeout = aiohttp.ClientTimeout(total=90, connect=60, sock_read=30)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        for _ in range(6):
+            await _validate_public_url(current_url)
+            async with session.get(
+                current_url,
+                allow_redirects=False,
+                headers=_request_headers(current_url, api_key),
+            ) as response:
+                if response.status in _REDIRECT_CODES:
+                    location = response.headers.get("Location")
+                    if not location:
+                        raise RuntimeError(f"HTTP {response.status} without Location")
+                    current_url = urljoin(current_url, location)
+                    continue
+                if response.status != 200:
+                    detail = ""
+                    try:
+                        detail = (await response.text())[:300]
+                    except Exception:
+                        pass
+                    raise RuntimeError(f"HTTP {response.status}" + (f": {detail}" if detail else ""))
+                filename = _filename_from_response(current_url, response.headers.get("Content-Disposition", ""))
+                response.release()
+                return current_url, filename
+    raise RuntimeError("too many redirects")
+
+
 def _state(filename, **changes):
     current = _DOWNLOAD_STATE.setdefault(
         filename,
@@ -85,7 +141,7 @@ def _state(filename, **changes):
     return current
 
 
-async def _download_worker(filename: str, url: str, expected_sha: str):
+async def _download_worker(filename: str, url: str, expected_sha: str, api_key: str):
     dest = LORA_DIR / filename
     part = LORA_DIR / f"{filename}.part"
     try:
@@ -95,25 +151,29 @@ async def _download_worker(filename: str, url: str, expected_sha: str):
         async with aiohttp.ClientSession(timeout=timeout) as session:
             for _ in range(6):
                 await _validate_public_url(current_url)
-                async with session.get(current_url, allow_redirects=False) as response:
-                    if response.status in (301, 302, 303, 307, 308):
+                async with session.get(
+                    current_url,
+                    allow_redirects=False,
+                    headers=_request_headers(current_url, api_key),
+                ) as response:
+                    if response.status in _REDIRECT_CODES:
                         location = response.headers.get("Location")
                         if not location:
                             raise RuntimeError(f"HTTP {response.status} without Location")
                         current_url = urljoin(current_url, location)
                         continue
                     if response.status != 200:
-                        text = ""
+                        detail = ""
                         try:
-                            text = (await response.text())[:300]
+                            detail = (await response.text())[:300]
                         except Exception:
                             pass
-                        raise RuntimeError(f"HTTP {response.status}" + (f": {text}" if text else ""))
+                        raise RuntimeError(f"HTTP {response.status}" + (f": {detail}" if detail else ""))
                     total = response.content_length
                     _state(filename, total=total)
-                    with part.open("wb") as f:
+                    with part.open("wb") as handle:
                         async for chunk in response.content.iter_chunked(8 * 1024 * 1024):
-                            f.write(chunk)
+                            handle.write(chunk)
                             _state(
                                 filename,
                                 downloaded=_DOWNLOAD_STATE[filename]["downloaded"] + len(chunk),
@@ -146,19 +206,19 @@ def _files_payload():
         for path in LORA_DIR.glob("*.safetensors"):
             if not path.is_file():
                 continue
-            stat = path.stat()
+            size = path.stat().st_size
             items[path.name] = {
                 "filename": path.name,
-                "status": "installed",
-                "size": stat.st_size,
-                "downloaded": stat.st_size,
-                "total": stat.st_size,
+                "status": "installed" if size > 0 else "missing",
+                "size": size,
+                "downloaded": size if size > 0 else 0,
+                "total": size if size > 0 else None,
                 "error": None,
             }
     for filename, state in _DOWNLOAD_STATE.items():
         if filename not in items or state.get("status") != "installed":
             items[filename] = dict(state)
-    return sorted(items.values(), key=lambda x: x["filename"].lower())
+    return sorted(items.values(), key=lambda item: item["filename"].lower())
 
 
 @routes.get("/h3-mobile/lora-library.js")
@@ -171,16 +231,44 @@ async def h3_mobile_lora_files(request):
     return web.json_response({"files": _files_payload()})
 
 
+@routes.post("/h3-mobile/api/loras/resolve")
+async def h3_mobile_lora_resolve(request):
+    try:
+        body = await request.json()
+    except Exception:
+        raise web.HTTPBadRequest(text="invalid json")
+    url = (body.get("url") or "").strip()
+    if not url:
+        raise web.HTTPBadRequest(text="url required")
+    try:
+        final_url, filename = await _probe_download(url, body.get("api_key") or "")
+    except ValueError as exc:
+        raise web.HTTPBadRequest(text=str(exc))
+    except RuntimeError as exc:
+        raise web.HTTPBadGateway(text=str(exc))
+    return web.json_response({"ok": True, "filename": filename, "final_url": final_url})
+
+
 @routes.post("/h3-mobile/api/loras/download")
 async def h3_mobile_lora_download(request):
     try:
         body = await request.json()
     except Exception:
         raise web.HTTPBadRequest(text="invalid json")
-    filename = _safe_filename(body.get("filename"))
     url = (body.get("url") or "").strip()
     if not url:
         raise web.HTTPBadRequest(text="url required")
+    api_key = body.get("api_key") or ""
+    filename_value = (body.get("filename") or "").strip()
+    if filename_value:
+        filename = _safe_filename(filename_value)
+    else:
+        try:
+            _, filename = await _probe_download(url, api_key)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc))
+        except RuntimeError as exc:
+            raise web.HTTPBadGateway(text=str(exc))
     expected_sha = _validate_sha(body.get("sha256"))
 
     dest = LORA_DIR / filename
@@ -202,13 +290,16 @@ async def h3_mobile_lora_download(request):
     except ValueError as exc:
         raise web.HTTPBadRequest(text=str(exc))
     _state(filename, status="queued", downloaded=0, total=None, error=None)
-    _DOWNLOAD_TASKS[filename] = asyncio.create_task(_download_worker(filename, url, expected_sha))
+    _DOWNLOAD_TASKS[filename] = asyncio.create_task(
+        _download_worker(filename, url, expected_sha, api_key)
+    )
     return web.json_response({"ok": True, "status": "queued", "filename": filename})
 
 
 @routes.post("/h3-mobile/api/loras/upload")
 async def h3_mobile_lora_upload(request):
     filename = _safe_filename(request.query.get("filename"))
+    expected_sha = _validate_sha(request.query.get("sha256"))
     dest = LORA_DIR / filename
     part = LORA_DIR / f"{filename}.upload.part"
     try:
@@ -232,11 +323,16 @@ async def h3_mobile_lora_upload(request):
             raise web.HTTPBadRequest(text="file field required")
         if not part.is_file() or part.stat().st_size <= 0:
             raise web.HTTPBadRequest(text="uploaded file is empty")
+        actual_sha = await asyncio.to_thread(_sha256, part)
+        if expected_sha and actual_sha.lower() != expected_sha:
+            raise web.HTTPConflict(
+                text=f"uploaded file SHA256 mismatch: expected {expected_sha}, got {actual_sha}"
+            )
         os.replace(part, dest)
         size = dest.stat().st_size
         _state(filename, status="installed", downloaded=size, total=size, error=None)
         return web.json_response(
-            {"ok": True, "filename": filename, "size": size, "sha256": await asyncio.to_thread(_sha256, dest)}
+            {"ok": True, "filename": filename, "size": size, "sha256": actual_sha}
         )
     finally:
         try:
@@ -261,7 +357,11 @@ async def h3_mobile_lora_delete(request):
         except asyncio.CancelledError:
             pass
     removed = False
-    for path in (LORA_DIR / filename, LORA_DIR / f"{filename}.part", LORA_DIR / f"{filename}.upload.part"):
+    for path in (
+        LORA_DIR / filename,
+        LORA_DIR / f"{filename}.part",
+        LORA_DIR / f"{filename}.upload.part",
+    ):
         try:
             if path.is_file():
                 path.unlink()

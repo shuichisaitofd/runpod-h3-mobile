@@ -1,6 +1,6 @@
 # H3 Mobile LoRA Test Status
 
-- State: VERIFIED
+- State: RUNNING
 - Branch: `codex/h3-lora-mobile-test`
 - Base SHA: `04f1d4f2827f055a79ac88ccc0c9f35a81996ab2`
 - Pod real-device test: NOT STARTED
@@ -34,11 +34,11 @@ Files are downloaded to `ComfyUI/models/loras/`. Redirects and existing `.part` 
 
 ## Prompt handling
 
-Single and batch Ref2VA generation prepend `dynv2. ` exactly once. A prompt already beginning with `dynv2` or `dynv2.` is left unchanged. I2V prompts are unchanged.
+Single and batch Ref2VA generation prepend `dynv2. ` exactly once only when H3 Motion Booster V2 is enabled for the active project. A prompt already beginning with `dynv2` or `dynv2.` is left unchanged. Motion Booster OFF and I2V prompts are unchanged.
 
 ## Tests and image
 
-- Offline tests: PASS (`validate_lora_mobile_test.py`, `validate_ref2va06.py`, `validate_runtime_billing.py`)
-- GitHub Actions: PASS ([run 34038254531](https://github.com/shuichisaitofd/runpod-h3-mobile/actions/runs/34038254531))
+- Offline tests: PASS (`validate_lora_mobile_test.py`, `validate_lora_library.py`, `validate_lora_manager_v2.py`, `validate_ref2va06.py`, `validate_runtime_billing.py`)
+- GitHub Actions: NOT STARTED for the LoRA manager v2 revision
 - Test image: `ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-lora-test`
 - Production tags `h3-cu130-latest` and `h3-cu130-v4`: unchanged

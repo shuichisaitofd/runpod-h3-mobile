@@ -97,8 +97,8 @@ app = (WEB / "app.js").read_text()
 batch = (WEB / "batch-v2.js").read_text()
 match = re.search(r"function ensureRef2VADynv2\(prompt\)\{[^\n]+\}", app)
 assert match, "dynv2 helper missing from app.js"
-assert "const prompt=isRef?ensureRef2VADynv2(inputPrompt):inputPrompt" in app
-assert "const prompt=batch.mode==='ref2va'?ensureRef2VADynv2(inputPrompt):inputPrompt" in batch
+assert "const prompt=isRef&&shouldAddRef2VADynv2(refCtx)?ensureRef2VADynv2(inputPrompt):inputPrompt" in app
+assert "const prompt=runMode==='ref2va'&&shouldAddRef2VADynv2(refCtx)?ensureRef2VADynv2(inputPrompt):inputPrompt" in batch
 assert "wf['105:104'].inputs.prompt=prompt" in app  # I2V receives the unmodified ternary branch.
 assert "wf['105:104'].inputs.prompt=cfg.prompt" in batch
 assert "sha256_error:'SHA256エラー'" in app

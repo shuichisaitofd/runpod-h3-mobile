@@ -73,15 +73,23 @@ else
 fi
 
 
-# Dynamic LoRA manager routes live under web/ so Dockerfile's existing
-# COPY h3-mobile/web/ rule bakes them without changing the production copy list.
-# Register the routes in both the baked copy and an already-materialized
-# /workspace copy (when present). The operation is idempotent.
+# Dynamic LoRA manager routes are a direct child of the custom node package.
+# Keep an already-materialized /workspace copy in sync, then register it with a
+# name that cannot shadow ``from aiohttp import web`` in __init__.py.
+H3_LORA_ROUTES_BAKED="/opt/comfyui-baked/custom_nodes/ComfyUI-H3-Mobile/lora_routes.py"
+H3_LORA_ROUTES_WORKSPACE="/workspace/runpod-slim/ComfyUI/custom_nodes/ComfyUI-H3-Mobile/lora_routes.py"
+if [ -f "$H3_LORA_ROUTES_BAKED" ] && [ -d "$(dirname "$H3_LORA_ROUTES_WORKSPACE")" ]; then
+  cp "$H3_LORA_ROUTES_BAKED" "$H3_LORA_ROUTES_WORKSPACE"
+fi
+
 for H3_MOBILE_INIT in \
   /opt/comfyui-baked/custom_nodes/ComfyUI-H3-Mobile/__init__.py \
   /workspace/runpod-slim/ComfyUI/custom_nodes/ComfyUI-H3-Mobile/__init__.py; do
-  if [ -f "$H3_MOBILE_INIT" ] && ! grep -Fq "from .web import lora_routes" "$H3_MOBILE_INIT"; then
-    printf '\nfrom .web import lora_routes  # register dynamic LoRA manager endpoints\n' >> "$H3_MOBILE_INIT"
+  if [ -f "$H3_MOBILE_INIT" ] && grep -Fq "from .web import lora_routes" "$H3_MOBILE_INIT"; then
+    sed -i '/from \.web import lora_routes/d' "$H3_MOBILE_INIT"
+  fi
+  if [ -f "$H3_MOBILE_INIT" ] && ! grep -Fq "from . import lora_routes" "$H3_MOBILE_INIT"; then
+    printf '\nfrom . import lora_routes  # register dynamic LoRA manager endpoints\n' >> "$H3_MOBILE_INIT"
   fi
 done
 

@@ -293,6 +293,7 @@ async def h3_mobile_prepare_models(request):
     return web.json_response({"ok": True, "mode": mode, "started": started, "skipped": skipped})
 
 from . import extra_routes  # register additional H3 Mobile endpoints
+from . import lora_routes  # register dynamic LoRA manager endpoints
 
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
