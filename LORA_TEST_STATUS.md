@@ -1,6 +1,6 @@
 # H3 Mobile LoRA Test Status
 
-- State: RUNNING
+- State: VERIFIED
 - Branch: `codex/h3-lora-mobile-test`
 - Base SHA: `04f1d4f2827f055a79ac88ccc0c9f35a81996ab2`
 - Pod real-device test: NOT STARTED
@@ -39,6 +39,6 @@ Single and batch Ref2VA generation prepend `dynv2. ` exactly once. A prompt alre
 ## Tests and image
 
 - Offline tests: PASS (`validate_lora_mobile_test.py`, `validate_ref2va06.py`, `validate_runtime_billing.py`)
-- GitHub Actions: NOT STARTED (Hugging Face mirror rebuild)
+- GitHub Actions: PASS ([run 34038254531](https://github.com/shuichisaitofd/runpod-h3-mobile/actions/runs/34038254531))
 - Test image: `ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-lora-test`
 - Production tags `h3-cu130-latest` and `h3-cu130-v4`: unchanged
