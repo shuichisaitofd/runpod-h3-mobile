@@ -1,4 +1,5 @@
 import ast
+import asyncio
 import importlib.util
 import subprocess
 import sys
@@ -84,6 +85,59 @@ assert "loraNewTarget" not in js and "対象 Ref2VA" not in js
 assert "/h3-mobile/api/loras/resolve" in routes_text
 assert "Content-Disposition" in routes_text and "_filename_from_response" in routes_text
 
+# A completed file is authoritative, uploads stop a same-name URL task first,
+# and worker failures preserve a completed destination.
+upload_route = routes_text.split("async def h3_mobile_lora_upload", 1)[1].split(
+    '@routes.post("/h3-mobile/api/loras/delete")', 1
+)[0]
+assert "await _cancel_download_for_upload(filename)" in upload_route
+assert upload_route.index("await _cancel_download_for_upload(filename)") < upload_route.index(
+    "await request.multipart()"
+)
+assert '_DOWNLOAD_TASKS.pop(filename, None)' in routes_text
+assert '_DOWNLOAD_STATE.pop(filename, None)' in routes_text
+assert 'LORA_DIR / f"{filename}.part"' in routes_text
+assert routes_text.count("if not _keep_installed_if_present(filename, dest):") == 2
+
+# File bulk upload is a strictly sequential file-only recovery path. A failed
+# file is counted and the loop continues to the remaining selections.
+bulk_upload = js.split("async function bulkUploadFiles", 1)[1].split(
+    "async function restoreToPod", 1
+)[0]
+for forbidden in (
+    "bulkDownloadUrls",
+    "resolveUrl",
+    "civitaiKey",
+    "/h3-mobile/api/loras/download",
+):
+    assert forbidden not in bulk_upload
+assert "for(const file of [...files])" in bulk_upload
+assert "try{const result=await uploadItem(item,file)" in bulk_upload
+assert "catch{failed++;errors.push(file.name);}" in bulk_upload
+
+# URL registrations that fail to redownload are selected by actual Pod file
+# status, not excluded just because their saved record still has a URL.
+restore_candidates = js.split("function restoreCandidates", 1)[1].split(
+    "async function bulkUploadFiles", 1
+)[0]
+restore_to_pod = js.split("async function restoreToPod", 1)[1].split(
+    "function exportSettings", 1
+)[0]
+assert "!isInstalledFile(fileMap.get(item.filename))" in restore_candidates
+assert "!item.url" not in restore_candidates
+assert "waitForUrlDownloads(result.pending)" in restore_to_pod
+assert "restoreCandidates(files)" in restore_to_pod
+assert "ファイルで復元できます" in restore_to_pod
+
+# Registration origin and current-Pod installation method are separate. File
+# restore never converts a URL registration into a file registration.
+assert "sourceType" in js and "installMethod" in js
+assert "登録: ${sourceTypeLabel(item.sourceType)}" in js
+assert "Pod導入: ${installMethodLabel(item,installed)}" in js
+assert "installMethod:'file'" in bulk_upload
+assert "sourceType:item.url?'url':'file'" not in js
+assert "sourceType:'file',originalFilename:file.name" not in js
+
 # Dynamic prefixing is gated by Motion Booster for both Ref2VA entry points,
 # while I2V follows the unchanged inputPrompt branch.
 assert "h3LoraShouldAddDynv2" in js
@@ -147,6 +201,59 @@ with tempfile.TemporaryDirectory() as temp_dir:
         state = {item["filename"]: item for item in module._files_payload()}
         assert state["empty.safetensors"]["status"] == "missing"
         assert state["empty.safetensors"]["downloaded"] == 0
+
+        # Actual non-empty files must beat any stale error/cancel/download
+        # state left behind by URL processing.
+        (temp / "present.safetensors").write_bytes(b"valid")
+        module._DOWNLOAD_STATE["present.safetensors"] = {
+            "filename": "present.safetensors",
+            "status": "error",
+            "downloaded": 0,
+            "total": None,
+            "error": "HTTP 401",
+        }
+        state = {item["filename"]: item for item in module._files_payload()}
+        assert state["present.safetensors"]["status"] == "installed"
+        assert state["present.safetensors"]["size"] == 5
+        assert state["present.safetensors"]["error"] is None
+
+        # Even if the worker itself enters its exception path, a completed
+        # destination that appeared concurrently remains installed.
+        (temp / "worker-race.safetensors").write_bytes(b"complete")
+        asyncio.run(
+            module._download_worker(
+                "worker-race.safetensors", "https://example.com/model", "", ""
+            )
+        )
+        assert module._DOWNLOAD_STATE["worker-race.safetensors"]["status"] == "installed"
+
+        # Starting file upload cancels and awaits the same-name URL task,
+        # clears stale state, and removes the download .part file.
+        async def verify_upload_cancellation():
+            filename = "recover.safetensors"
+            started = asyncio.Event()
+            blocker = asyncio.Event()
+
+            async def stale_download():
+                started.set()
+                await blocker.wait()
+
+            task = asyncio.create_task(stale_download())
+            await started.wait()
+            module._DOWNLOAD_TASKS[filename] = task
+            module._DOWNLOAD_STATE[filename] = {
+                "filename": filename,
+                "status": "downloading",
+            }
+            part = temp / f"{filename}.part"
+            part.write_bytes(b"partial")
+            await module._cancel_download_for_upload(filename)
+            assert task.cancelled()
+            assert filename not in module._DOWNLOAD_TASKS
+            assert filename not in module._DOWNLOAD_STATE
+            assert not part.exists()
+
+        asyncio.run(verify_upload_cancellation())
     finally:
         if old_folder_paths is None:
             sys.modules.pop("folder_paths", None)

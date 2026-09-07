@@ -141,6 +141,17 @@ def _state(filename, **changes):
     return current
 
 
+def _keep_installed_if_present(filename: str, dest: Path) -> bool:
+    """Keep a completed file authoritative over stale asynchronous state."""
+    if not dest.is_file():
+        return False
+    size = dest.stat().st_size
+    if size <= 0:
+        return False
+    _state(filename, status="installed", downloaded=size, total=size, error=None)
+    return True
+
+
 async def _download_worker(filename: str, url: str, expected_sha: str, api_key: str):
     dest = LORA_DIR / filename
     part = LORA_DIR / f"{filename}.part"
@@ -192,10 +203,12 @@ async def _download_worker(filename: str, url: str, expected_sha: str, api_key: 
         size = dest.stat().st_size
         _state(filename, status="installed", downloaded=size, total=size, error=None)
     except asyncio.CancelledError:
-        _state(filename, status="cancelled", error="cancelled")
+        if not _keep_installed_if_present(filename, dest):
+            _state(filename, status="cancelled", error="cancelled")
         raise
     except Exception as exc:
-        _state(filename, status="error", error=str(exc))
+        if not _keep_installed_if_present(filename, dest):
+            _state(filename, status="error", error=str(exc))
     finally:
         _DOWNLOAD_TASKS.pop(filename, None)
 
@@ -216,9 +229,33 @@ def _files_payload():
                 "error": None,
             }
     for filename, state in _DOWNLOAD_STATE.items():
-        if filename not in items or state.get("status") != "installed":
-            items[filename] = dict(state)
+        existing = items.get(filename)
+        if existing and existing["status"] == "installed" and existing["size"] > 0:
+            continue
+        items[filename] = dict(state)
     return sorted(items.values(), key=lambda item: item["filename"].lower())
+
+
+async def _cancel_download_for_upload(filename: str):
+    task = _DOWNLOAD_TASKS.get(filename)
+    if task is not None:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            # Upload remains the authoritative recovery path even if a stale
+            # worker completed with an unexpected exception.
+            pass
+    _DOWNLOAD_TASKS.pop(filename, None)
+    _DOWNLOAD_STATE.pop(filename, None)
+    part = LORA_DIR / f"{filename}.part"
+    try:
+        if part.is_file():
+            part.unlink()
+    except OSError as exc:
+        raise web.HTTPInternalServerError(text=str(exc))
 
 
 @routes.get("/h3-mobile/lora-library.js")
@@ -300,6 +337,7 @@ async def h3_mobile_lora_download(request):
 async def h3_mobile_lora_upload(request):
     filename = _safe_filename(request.query.get("filename"))
     expected_sha = _validate_sha(request.query.get("sha256"))
+    await _cancel_download_for_upload(filename)
     dest = LORA_DIR / filename
     part = LORA_DIR / f"{filename}.upload.part"
     try:
