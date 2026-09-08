@@ -30,21 +30,20 @@ for removed in (
 assert '"turbo_lora"' in model_specs and '"turbo_lora"' in mode_sets
 assert "minimax_h3_turbo_v4_step600_ema.safetensors" in model_specs
 
-# Bulk file restore matches the original filename, preserves the registration,
-# verifies a saved SHA through uploadItem(), and immediately rerenders from the
-# installed Pod state. Upload does not alter project ON/OFF/strength settings.
-bulk_upload = lora.split("async function bulkUploadFiles", 1)[1].split(
-    "async function restoreToPod", 1
+# Bulk file upload matches the original filename, preserves the registration,
+# uploads through runUpload()/uploadItem(), and rerenders from the installed Pod
+# state. Upload does not alter project ON/OFF/strength settings.
+bulk_upload = lora.split("async function handleUploadFiles", 1)[1].split(
+    "function bulkUploadFiles", 1
 )[0]
-assert "originalFilename===file.name" in bulk_upload
-assert "await uploadItem(item,file)" in bulk_upload
-assert "installMethod:'file'" in bulk_upload
-assert "pendingInstallMethod:null" in bulk_upload
-assert "await renderManager()" in bulk_upload
-assert "sourceType:item.url?'url':'file'" not in bulk_upload
-assert "setSelection" not in bulk_upload and "enabled:" not in bulk_upload
-assert "const expected=item.sha256?" in lora
-assert "${!installed?'<label" in lora
+assert "value.originalFilename===file.name||value.filename===file.name" in bulk_upload
+assert "runUpload(item,file)" in bulk_upload
+assert "setSelection" not in bulk_upload
+assert "enabled:" not in bulk_upload
+# The stale-learned-SHA bug is gone: no learned hash is ever sent as expected.
+assert "const expected=item.sha256?" not in lora
+assert "&sha256=${encodeURIComponent(item.sha256)}" not in lora
+assert "uploadItem(item,file,onProgress)" in lora and "xhr.upload.onprogress" in lora
 
 # History metadata keeps filename plus the registered display name and strength.
 # The formatter is backward compatible with entries that have no loras field.

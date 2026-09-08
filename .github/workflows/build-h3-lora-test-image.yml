@@ -37,6 +37,9 @@ jobs:
       - name: Validate LoRA registration cleanup
         run: python3 tests/validate_lora_registration_cleanup.py
 
+      - name: Validate file-only LoRA manager and full-settings backup
+        run: python3 tests/validate_lora_file_only.py
+
       - name: Validate generation presets and history
         run: python3 tests/validate_generation_presets.py
 
