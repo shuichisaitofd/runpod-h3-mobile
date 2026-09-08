@@ -34,6 +34,9 @@ jobs:
       - name: Validate LoRA manager v2
         run: python3 tests/validate_lora_manager_v2.py
 
+      - name: Validate LoRA registration cleanup
+        run: python3 tests/validate_lora_registration_cleanup.py
+
       - name: Validate generation presets and history
         run: python3 tests/validate_generation_presets.py
 

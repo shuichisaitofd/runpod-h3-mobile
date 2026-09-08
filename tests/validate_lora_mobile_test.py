@@ -80,14 +80,16 @@ assert hashlib.sha256(ref03.read_bytes()).hexdigest() == "7b040e3608daefc9e0c68b
 
 init = INIT_PATH.read_text()
 lora_library = (WEB / "lora-library.js").read_text()
-for expected in (
+for retired_registration_data in (
     "https://huggingface.co/Hearmeman/minimax-h3-loras/resolve/main/HMNSFW-AIO-V2.5.safetensors",
     "https://huggingface.co/bilmemne13/1/resolve/main/H3_Motion_BoosterV2.safetensors",
     "a07732a84fd733085eb5d910f602f918fa7a3658117116927e4329f5951a9d2d",
     "f6a6897162b921d2b74abe1fdebcd80c8189147e70e0e0738200756c250336c3",
 ):
-    assert init.count(expected) == 0, expected
-    assert lora_library.count(expected) == 1, expected
+    assert retired_registration_data not in init, retired_registration_data
+    assert retired_registration_data not in lora_library, retired_registration_data
+assert "const DEFAULTS=" not in lora_library
+assert "h3MobileLoraRegistrationCleanupV3" in lora_library
 assert "civarchive.com" not in init
 assert '"ref2va_aio_lora"' not in init
 assert '"ref2va_motion_booster_lora"' not in init
