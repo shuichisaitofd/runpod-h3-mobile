@@ -3,14 +3,35 @@
 
 const LIB_KEY='h3MobileLoraLibraryV1';
 const LEGACY_SEL_KEY='h3MobileLoraSelectionsV1';
-const REGISTRATION_CLEANUP_KEY='h3MobileLoraRegistrationCleanupV3';
+const CATALOG_VERSION_KEY='h3MobileLoraCatalogVersion';
+const CATALOG_VERSION='default-12-v1';
 const CIVITAI_KEY='h3MobileCivitaiApiKey';
 const CONTEXTS=['i2v','ref:03','ref:04','ref:05','ref:fast','ref:stable'];
-const RETIRED_REGISTRATIONS=[
- {id:'aio-v25',filename:'HMNSFW-AIO-V2.5.safetensors'},
- {id:'motion-booster-v2',filename:'H3_Motion_BoosterV2.safetensors'},
- {id:'penisv2-epoch60',filename:'PenisV2_minimax-h3_epoch60.safetensors'}
-];
+const DEFAULT_LORA_CATALOG=Object.freeze([
+ {id:'default-aio-v25',name:'AIO v2.5',filename:'AIO_v2.5.safetensors'},
+ {id:'default-bj-v3',name:'BJ v3',filename:'BJ_v3.safetensors'},
+ {id:'default-finger-bean-v1',name:'Finger BEAN v1',filename:'Finger_BEAN_v1.safetensors'},
+ {id:'default-deepthroat-v02',name:'deepthroat v02',filename:'deepthroat_v02.safetensors'},
+ {id:'default-squirt-hm-v1',name:'Squirt HM v1',filename:'Squirt_HM_v1.safetensors'},
+ {id:'default-nipple-v2',name:'Nipple v2',filename:'Nipple_v2.safetensors'},
+ {id:'default-panties-v1',name:'Panties v1',filename:'Panties_v1.safetensors'},
+ {id:'default-motion-fl2va-v2',name:'Motion FL2VA v2',filename:'Motion_FL2VA_v2.safetensors'},
+ {id:'default-motion-ref2va-v2',name:'Motion REF2VA v2',filename:'Motion_REF2VA_v2.safetensors'},
+ {id:'default-mystic-fl2va-v4',name:'Mystic FL2VA v4',filename:'Mystic_FL2VA_v4.safetensors'},
+ {id:'default-penis-hm-v2',name:'Penis HM v2',filename:'Penis_HM_v2.safetensors'},
+ {id:'default-pussy-hm-v1',name:'Pussy HM v1',filename:'Pussy_HM_v1.safetensors'}
+]);
+const LEGACY_DEFAULT_FILENAMES=new Set([
+ 'HMNSFW-AIO-V2.5.safetensors',
+ 'MM-H3 - Blowjob v3.safetensors',
+ 'BEANFLK_H3_V1.safetensors',
+ 'HMMasturbationV1.safetensors',
+ 'H3_Motion_BoosterV2.safetensors',
+ 'ref2VA_Motion_v2.safetensors',
+ 'MysticXXX_MMH3-V4.safetensors',
+ 'PenisV2_minimax-h3_epoch60.safetensors',
+ 'Vagina_minimax-h3_epoch20.safetensors'
+]);
 const q=s=>document.querySelector(s);
 const qa=s=>[...document.querySelectorAll(s)];
 const esc=v=>String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
@@ -25,17 +46,20 @@ function getProjectList(){return typeof getProjects==='function'?getProjects():[
 function saveProjectList(projects){if(typeof saveProjects==='function')saveProjects(projects);}
 function clone(value){return JSON.parse(JSON.stringify(value||{}));}
 function removeSelectionIds(selections,ids){let changed=false;for(const values of Object.values(selections||{})){if(!values||typeof values!=='object')continue;for(const id of ids){if(Object.prototype.hasOwnProperty.call(values,id)){delete values[id];changed=true;}}}return changed;}
-function purgeRetiredRegistrations(){
- if(localStorage.getItem(REGISTRATION_CLEANUP_KEY)==='1')return;
- const retiredIds=new Set(RETIRED_REGISTRATIONS.map(item=>item.id)),retiredFilenames=new Set(RETIRED_REGISTRATIONS.map(item=>item.filename)),library=loadLib(),removedIds=new Set(retiredIds);
- for(const item of library)if(retiredFilenames.has(item.filename)||retiredIds.has(item.id))removedIds.add(item.id);
- saveLib(library.filter(item=>!retiredFilenames.has(item.filename)&&!retiredIds.has(item.id)));
+function catalogRecord(definition){return normalizeItem({...definition,originalFilename:definition.filename,sourceType:'file',installMethod:null,pendingInstallMethod:null,url:'',sha256:'',defaultStrength:1});}
+function catalogDefinition(filename){return DEFAULT_LORA_CATALOG.find(item=>item.filename===filename)||null;}
+function migrateDefaultCatalog(){
+ if(localStorage.getItem(CATALOG_VERSION_KEY)===CATALOG_VERSION)return;
+ const library=loadLib(),removedIds=new Set(library.filter(item=>LEGACY_DEFAULT_FILENAMES.has(item.filename)).map(item=>item.id));
+ const next=library.filter(item=>!LEGACY_DEFAULT_FILENAMES.has(item.filename));
+ for(const definition of DEFAULT_LORA_CATALOG)if(!next.some(item=>item.filename===definition.filename))next.push(catalogRecord(definition));
+ saveLib(next);
  const legacy=loadJson(LEGACY_SEL_KEY,null);if(legacy&&removeSelectionIds(legacy,removedIds))localStorage.setItem(LEGACY_SEL_KEY,JSON.stringify(legacy));
  const projects=getProjectList();let changed=false;for(const project of projects)if(removeSelectionIds(project.loraSelections,removedIds))changed=true;if(changed)saveProjectList(projects);
- localStorage.setItem(REGISTRATION_CLEANUP_KEY,'1');
+ localStorage.setItem(CATALOG_VERSION_KEY,CATALOG_VERSION);
 }
 function seed(){
- purgeRetiredRegistrations();
+ migrateDefaultCatalog();
  const library=loadLib();
  const legacy=loadJson(LEGACY_SEL_KEY,{}),projects=getProjectList();let changed=false;
  for(const project of projects){
@@ -51,7 +75,7 @@ function selected(ctx){return ordered(ctx).filter(entry=>entry.sel.enabled);}
 function ctxFromWorkflow(name){return name==='i2v'?'i2v':name==='ref2va_03'?'ref:03':name==='ref2va_04'?'ref:04':name==='ref2va_05'?'ref:05':name==='ref2va_06_fast'?'ref:fast':name==='ref2va_06_stable'?'ref:stable':null;}
 function currentCreateCtx(){return state?.mode==='ref'?`ref:${state.refVariant}`:'i2v';}
 function currentBatchCtx(){const mode=q('[data-batch-mode].active')?.dataset.batchMode||'i2v';if(mode!=='ref2va')return'i2v';return`ref:${q('#batchRefVariant [data-batch-variant].active')?.dataset.batchVariant||'04'}`;}
-window.h3LoraShouldAddDynv2=ctx=>(ctx!=='i2v'&&ctx!=='ref:03')||selected(ctx).some(({item})=>item.filename==='H3_Motion_BoosterV2.safetensors');
+window.h3LoraShouldAddDynv2=ctx=>(ctx!=='i2v'&&ctx!=='ref:03')||selected(ctx).some(({item})=>item.filename==='Motion_REF2VA_v2.safetensors');
 window.h3LoraPresetSnapshot=ctx=>ordered(ctx).map(({item,sel})=>({id:item.id,filename:item.filename,enabled:!!sel.enabled,strength:Number(sel.strength),order:Number(sel.order)}));
 window.h3ApplyLoraPreset=(ctx,snapshot)=>{if(!Array.isArray(snapshot))return;const library=loadLib(),projects=getProjectList(),activeId=typeof getActiveProjectId==='function'?getActiveProjectId():null,index=projects.findIndex(project=>project.id===activeId);if(index<0)return;projects[index].loraSelections=projects[index].loraSelections||{};projects[index].loraSelections[ctx]=projects[index].loraSelections[ctx]||{};const settings=projects[index].loraSelections[ctx];for(const saved of snapshot){const item=library.find(value=>value.id===saved.id)||library.find(value=>value.filename===saved.filename);if(!item)continue;const current=settings[item.id]||{enabled:false,strength:item.defaultStrength,order:library.indexOf(item)};settings[item.id]={...current,...(typeof saved.enabled==='boolean'?{enabled:saved.enabled}:{}),...(Number.isFinite(Number(saved.strength))?{strength:Number(saved.strength)}:{}),...(Number.isFinite(Number(saved.order))?{order:Number(saved.order)}:{})};}saveProjectList(projects);renderQuick();};
 
@@ -97,10 +121,10 @@ async function addUrlFromForm(){const name=q('#loraUrlDisplayName').value.trim()
 async function bulkDownloadUrls(){const message=q('#loraRestoreMsg');message.textContent='URL型LoRAを確認中...';try{const files=await podFiles(),urlItems=loadLib().filter(item=>item.sourceType==='url'&&item.url),targets=urlItems.filter(item=>!isInstalledFile(files.get(item.filename))),pending=[];let started=0,failed=0;for(const item of targets){try{const result=await downloadItem(item);if(['queued','downloading'].includes(result.status))pending.push(item.filename);started++;}catch{failed++;}}message.textContent=`URL型: 開始 ${started}件 / スキップ ${urlItems.length-targets.length}件${failed?` / 失敗 ${failed}件`:''}`;if(pending.length)startManagerPolling();await renderManager();return{files:await podFiles(),pending};}catch(error){message.textContent=friendlyError(error.message);return{files:new Map(),pending:[]};}}
 async function waitForUrlDownloads(filenames){let files=await podFiles();for(let attempt=0;attempt<60&&filenames.some(filename=>['queued','downloading'].includes(files.get(filename)?.status));attempt++){await new Promise(resolve=>setTimeout(resolve,1000));files=await podFiles();}return files;}
 function restoreCandidates(fileMap){return loadLib().filter(item=>!isInstalledFile(fileMap.get(item.filename)));}
-async function bulkUploadFiles(files){const message=q('#loraRestoreMsg');let restored=0,added=0,failed=0;const errors=[];for(const file of [...files]){if(!file.name.toLowerCase().endsWith('.safetensors')){failed++;errors.push(file.name);continue;}let item=loadLib().find(value=>value.originalFilename===file.name);if(!item){item=addRecord({name:autoName(file.name),filename:file.name,originalFilename:file.name,sourceType:'file',installMethod:null,url:'',sha256:'',defaultStrength:1});added++;}try{const result=await uploadItem(item,file);updateItem(item.id,{sha256:item.sha256||result.sha256,originalFilename:file.name,installMethod:'file',pendingInstallMethod:null});restored++;}catch{failed++;errors.push(file.name);}}message.textContent=`一括アップロード: 復元 ${restored}件 / 新規登録 ${added}件${failed?` / エラー ${failed}件 (${errors.join(', ')})`:''}`;q('#loraBulkFiles').value='';await renderManager();renderQuick();}
+async function bulkUploadFiles(files){const message=q('#loraRestoreMsg');let restored=0,added=0,failed=0;const errors=[],unregistered=[];for(const file of [...files]){if(!file.name.toLowerCase().endsWith('.safetensors')){failed++;errors.push(file.name);continue;}let item=loadLib().find(value=>value.originalFilename===file.name||value.filename===file.name);const definition=catalogDefinition(file.name);if(!item&&definition){item=addRecord(catalogRecord(definition));added++;}if(!item){unregistered.push(file.name);continue;}try{const result=await uploadItem(item,file);updateItem(item.id,{sha256:item.sha256||result.sha256,originalFilename:file.name,installMethod:'file',pendingInstallMethod:null});restored++;}catch{failed++;errors.push(file.name);}}message.textContent=`一括アップロード: 対応 ${restored}件 / デフォルト再登録 ${added}件${unregistered.length?` / 未登録ファイル: ${unregistered.join(', ')}`:''}${failed?` / エラー ${failed}件 (${errors.join(', ')})`:''}`;q('#loraBulkFiles').value='';await renderManager();renderQuick();}
 async function restoreToPod(){const result=await bulkDownloadUrls(),files=await waitForUrlDownloads(result.pending),missing=restoreCandidates(files),message=q('#loraRestoreMsg');if(missing.length){message.textContent+=` / ファイルで復元できます: ${missing.map(item=>item.originalFilename).join(', ')}`;q('#loraBulkFiles').click();}else message.textContent+=' / 不足LoRAはありません。';}
 function exportSettings(){const projectSelections=getProjectList().map(project=>({id:project.id,name:project.name,loraSelections:project.loraSelections||{}})),data={version:2,library:loadLib(),projectSelections},blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download='h3-lora-settings-backup.json';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-async function importSettings(file){if(!file)return;try{const data=JSON.parse(await file.text());if(!Array.isArray(data.library))throw new Error('バックアップ形式が違います');saveLib(data.library);const projects=getProjectList(),backups=Array.isArray(data.projectSelections)?data.projectSelections:[];for(const project of projects){const backup=backups.find(value=>value.id===project.id)||backups.find(value=>value.name===project.name);if(backup?.loraSelections)project.loraSelections=backup.loraSelections;}if(!backups.length&&data.selections){for(const project of projects)project.loraSelections=clone(data.selections);}saveProjectList(projects);seed();renderQuick();await renderManager();alert('LoRA設定を復元しました。LoRA本体は「このPodにLoRAを復元」から導入してください。');}catch(error){alert('設定復元に失敗: '+error.message);}}
+async function importSettings(file){if(!file)return;try{const data=JSON.parse(await file.text());if(!Array.isArray(data.library))throw new Error('バックアップ形式が違います');saveLib(data.library);const projects=getProjectList(),backups=Array.isArray(data.projectSelections)?data.projectSelections:[];for(const project of projects){const backup=backups.find(value=>value.id===project.id)||backups.find(value=>value.name===project.name);if(backup?.loraSelections)project.loraSelections=backup.loraSelections;}if(!backups.length&&data.selections){for(const project of projects)project.loraSelections=clone(data.selections);}saveProjectList(projects);localStorage.removeItem(CATALOG_VERSION_KEY);seed();renderQuick();await renderManager();alert('LoRA設定を復元しました。LoRA本体は「このPodにLoRAを復元」から導入してください。');}catch(error){alert('設定復元に失敗: '+error.message);}}
 function injectLoraPage(){const root=q('#h3LoraPage');if(!root||q('#h3LoraManager'))return;root.innerHTML=`<div class="card"><h2>LoRAを追加</h2><div class="h3-lora-top-actions"><button class="secondary active" id="loraChooseFile">ファイルから追加</button><button class="secondary" id="loraChooseUrl">URLから追加</button></div><div id="loraAddFileForm" class="h3-lora-form"><label>表示名（未入力ならファイル名から自動生成）</label><input id="loraFileDisplayName" placeholder="表示名"><label class="h3-lora-filepick"><span id="loraNewFileName">.safetensorsを選択</span><input id="loraNewFile" type="file" accept=".safetensors"></label><button class="primary" id="loraAddFileButton" style="margin-top:8px;width:100%">登録してPodへアップロード</button></div><div id="loraAddUrlForm" class="h3-lora-form hidden"><label>表示名（未入力可）</label><input id="loraUrlDisplayName" placeholder="表示名"><label>URL</label><input id="loraNewUrl" type="url" placeholder="https://..."><label>初期strength</label><input id="loraNewStrength" type="number" step="0.01" inputmode="decimal" value="1"><button class="primary" id="loraAddUrlButton" style="width:100%">登録してPodへダウンロード</button></div><div id="loraAddMsg" class="small" style="margin-top:8px"></div></div><div class="card"><div class="row"><h2 style="margin:0;flex:1">現在のPod</h2><button class="secondary h3-lora-compact" id="loraRefresh">更新</button></div><div class="h3-lora-top-actions"><button class="secondary h3-lora-compact" id="loraRestorePod" style="flex-basis:100%">このPodにLoRAを復元</button><button class="secondary h3-lora-compact" id="loraBulkDownload">URLから一括再導入</button><label class="secondary h3-lora-compact" style="text-align:center;cursor:pointer">ファイルを一括アップロード<input id="loraBulkFiles" type="file" accept=".safetensors" multiple style="display:none"></label></div><div id="loraRestoreMsg" class="small" style="margin-top:8px"></div><div id="h3LoraManager" class="h3-lora-manager"></div></div><div class="card"><h2>認証</h2><div class="small">APIキーはこのブラウザだけに保存し、ダウンロード時だけ現在のPodへ送信します。</div><label>Civitai APIキー</label><input id="loraCivitaiKey" type="password" autocomplete="off"><button class="secondary h3-lora-compact" id="loraSaveKey" style="margin-top:8px">APIキーを保存</button><div id="loraKeyMsg" class="small"></div></div><div class="card"><h2>バックアップ</h2><div class="small">登録情報と案件別LoRA設定だけをJSONに保存します。LoRA本体は含みません。</div><div class="h3-lora-top-actions"><button class="secondary" id="loraExport">設定バックアップ</button><label class="secondary" style="text-align:center;cursor:pointer;padding:12px">設定を復元<input id="loraImport" type="file" accept=".json,application/json" style="display:none"></label></div></div>`;q('#loraChooseFile').onclick=()=>setAddMode('file');q('#loraChooseUrl').onclick=()=>setAddMode('url');q('#loraNewFile').onchange=event=>{q('#loraNewFileName').textContent=event.target.files?.[0]?.name||'.safetensorsを選択';};q('#loraAddFileButton').onclick=addFileFromForm;q('#loraAddUrlButton').onclick=addUrlFromForm;q('#loraRefresh').onclick=renderManager;q('#loraBulkDownload').onclick=bulkDownloadUrls;q('#loraRestorePod').onclick=restoreToPod;q('#loraBulkFiles').onchange=event=>bulkUploadFiles(event.target.files);q('#loraExport').onclick=exportSettings;q('#loraImport').onchange=event=>importSettings(event.target.files?.[0]);q('#loraCivitaiKey').value=civitaiKey();q('#loraSaveKey').onclick=()=>{localStorage.setItem(CIVITAI_KEY,q('#loraCivitaiKey').value.trim());q('#loraKeyMsg').textContent='このブラウザに保存しました。';};}
 
 function stripManaged(workflow){const names=new Set(loadLib().map(item=>item.filename));let changed=true;while(changed){changed=false;for(const [id,node] of Object.entries(workflow)){if(node?.class_type!=='LoraLoaderModelOnly')continue;const name=node.inputs?.lora_name,title=node._meta?.title||'';if(!names.has(name)&&!title.startsWith('H3 Mobile LoRA'))continue;const previous=node.inputs?.model;if(!Array.isArray(previous))continue;for(const other of Object.values(workflow)){const model=other?.inputs?.model;if(Array.isArray(model)&&String(model[0])===String(id))other.inputs.model=[String(previous[0]),previous[1]??0];}delete workflow[id];changed=true;break;}}}

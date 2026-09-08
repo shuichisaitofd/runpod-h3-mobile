@@ -141,7 +141,7 @@ assert "sourceType:'file',originalFilename:file.name" not in js
 # Dynamic prefixing is gated by Motion Booster for both Ref2VA entry points,
 # while I2V follows the unchanged inputPrompt branch.
 assert "h3LoraShouldAddDynv2" in js
-assert "motion-booster-v2" in js
+assert "Motion_REF2VA_v2.safetensors" in js
 assert "isRef&&shouldAddRef2VADynv2(refCtx)" in app
 assert "runMode==='ref2va'&&shouldAddRef2VADynv2(refCtx)" in batch
 assert "h3LoraSnapshot" in js and "h3ApplyLoraSnapshot" in js

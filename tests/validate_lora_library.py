@@ -13,9 +13,18 @@ run = (ROOT / "run.sh").read_text()
 index = (WEB / "index.html").read_text()
 
 for filename in (
-    "HMNSFW-AIO-V2.5.safetensors",
-    "H3_Motion_BoosterV2.safetensors",
-    "PenisV2_minimax-h3_epoch60.safetensors",
+    "AIO_v2.5.safetensors",
+    "BJ_v3.safetensors",
+    "Finger_BEAN_v1.safetensors",
+    "deepthroat_v02.safetensors",
+    "Squirt_HM_v1.safetensors",
+    "Nipple_v2.safetensors",
+    "Panties_v1.safetensors",
+    "Motion_FL2VA_v2.safetensors",
+    "Motion_REF2VA_v2.safetensors",
+    "Mystic_FL2VA_v4.safetensors",
+    "Penis_HM_v2.safetensors",
+    "Pussy_HM_v1.safetensors",
 ):
     assert filename in js, filename
 

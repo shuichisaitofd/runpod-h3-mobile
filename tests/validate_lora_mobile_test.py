@@ -89,7 +89,8 @@ for retired_registration_data in (
     assert retired_registration_data not in init, retired_registration_data
     assert retired_registration_data not in lora_library, retired_registration_data
 assert "const DEFAULTS=" not in lora_library
-assert "h3MobileLoraRegistrationCleanupV3" in lora_library
+assert "h3MobileLoraCatalogVersion" in lora_library
+assert "default-12-v1" in lora_library
 assert "civarchive.com" not in init
 assert '"ref2va_aio_lora"' not in init
 assert '"ref2va_motion_booster_lora"' not in init
