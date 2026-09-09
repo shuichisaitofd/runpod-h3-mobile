@@ -49,9 +49,40 @@ jobs:
       - name: Validate runtime and billing features
         run: python3 tests/validate_runtime_billing.py
 
+      - name: Syntax check (web JS / route modules / run.sh)
+        run: |
+          for f in h3-mobile/web/*.js; do node --check "$f"; done
+          python3 -m py_compile h3-mobile/*.py tests/*.py
+          bash -n run.sh
+
+  browser-tests:
+    if: github.ref == 'refs/heads/codex/h3-lora-mobile-test'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Playwright + Chromium
+        working-directory: tests
+        run: |
+          npm install --no-save
+          npx playwright install --with-deps chromium
+
+      - name: Real-browser LoRA upload progress integration test
+        env:
+          REQUIRE_BROWSER_TEST: "1"
+          PLAYWRIGHT_MODULE: playwright
+          NODE_PATH: tests/node_modules
+        run: node tests/integration_lora_upload_browser.mjs
+
   build-and-push:
     if: github.ref == 'refs/heads/codex/h3-lora-mobile-test'
-    needs: offline-tests
+    needs: [offline-tests, browser-tests]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

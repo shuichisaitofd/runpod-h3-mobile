@@ -1,7 +1,13 @@
 """Behavioural checks for the file-only LoRA manager and full-settings backup.
 
-No real safetensors bytes are ever stored or transferred: the upload transport
-(XMLHttpRequest) is stubbed and drives the exact browser code paths.
+SCOPE: this file drives the browser logic in a Node VM with a stubbed
+XMLHttpRequest. It verifies state-machine behaviour (phase transitions, error
+handling, SHA separation, backup export/restore) and the *rendering* of the
+indeterminate-progress branch. It does NOT prove that progress is visible in a
+real DOM at the right time — that is what
+tests/integration_lora_upload_browser.mjs does with a real headless browser and
+a real slow multipart upload. A FakeXHR firing synthetic progress events is
+explicitly NOT "実アップロード進捗確認".
 """
 import json
 import subprocess
@@ -15,14 +21,15 @@ js = (WEB / "lora-library.js").read_text()
 HOOK = (
     "window.__t={seed,loadLib,addRecord,removeItem,updateItem,runUpload,uploadState,"
     "handleUploadFiles,exportSettings,importSettings,normalizeBackup,restoreCandidates,"
-    "catalogDefinition,catalogRecord};function init(){seed();"
+    "catalogDefinition,catalogRecord,progressMarkup,statusMarkup,lastPodFilesRef:()=>lastPodFiles};"
+    "function init(){seed();"
 )
 instrumented = js.replace("function init(){seed();", HOOK, 1)
 assert instrumented != js
 
 harness = r"""
 const vm=require('vm');
-const source=%s;
+const source=__SOURCE__;
 
 function makeEnv(entries=[], opts={}){
  const values=new Map(entries);
@@ -39,9 +46,16 @@ function makeEnv(entries=[], opts={}){
    this.responseText=opts.body||JSON.stringify({ok:true,sha256:(opts.sha||'c'.repeat(64)),size:99});}
   open(m,u){this.method=m;this.url=String(u);}
   send(){
-   if(this.upload.onprogress){this.upload.onprogress({lengthComputable:true,loaded:40,total:99});}
+   if(this.upload.onloadstart)this.upload.onloadstart();
+   if(opts.indeterminate){
+    // proxy stripped Content-Length: browser reports lengthComputable:false
+    if(this.upload.onprogress)this.upload.onprogress({lengthComputable:false,loaded:33554432});
+    if(this.upload.onprogress)this.upload.onprogress({lengthComputable:false,loaded:67108864});
+   }else{
+    if(this.upload.onprogress)this.upload.onprogress({lengthComputable:true,loaded:40,total:99});
+   }
    if(opts.fail==='network'){if(this.onerror)this.onerror();return;}
-   if(this.upload.onprogress){this.upload.onprogress({lengthComputable:true,loaded:99,total:99});}
+   if(!opts.indeterminate&&this.upload.onprogress)this.upload.onprogress({lengthComputable:true,loaded:99,total:99});
    if(this.upload.onload)this.upload.onload();
    if(this.onload)this.onload();
   }
@@ -121,6 +135,25 @@ function check(cond,label){if(!cond){console.error('FAIL: '+label);process.exit(
  await envNet.api.runUpload(n0,{name:n0.filename,size:99});
  check(envNet.api.uploadState.get(n0.id).message==='通信が切断されました','network error message');
 
+ // ---- indeterminate progress (lengthComputable:false) never goes blank
+ //   Requirement 6: no %, but an indeterminate bar + bytes-sent must show.
+ const envInd=makeEnv([],{indeterminate:true});envInd.api.seed();
+ const i0=envInd.api.loadLib()[0];
+ let sawIndeterminate=false;
+ // observe uploadState transitions during the fake's synchronous send()
+ const origSet=envInd.api.uploadState.set.bind(envInd.api.uploadState);
+ envInd.api.uploadState.set=(k,v)=>{if(v&&v.phase==='uploading'&&v.total===0&&v.loaded>0)sawIndeterminate=true;return origSet(k,v);};
+ await envInd.api.runUpload(i0,{name:i0.filename,size:99*1024*1024});
+ check(sawIndeterminate,'uploadState carried an indeterminate uploading phase (total:0, loaded>0)');
+ const pm=envInd.api.progressMarkup({phase:'uploading',loaded:33554432,total:0});
+ check(pm.includes('indeterminate'),'indeterminate progress uses an indeterminate bar');
+ check(pm.includes('送信済み')&&pm.includes('MB')&&pm.includes('アップロード中'),'indeterminate shows bytes-sent + アップロード中');
+ check(!/\d%<\/span>/.test(pm),'indeterminate shows no percentage figure');
+ check(!pm.includes('NaN')&&!pm.includes('undefined'),'indeterminate markup has no NaN/undefined');
+ check(envInd.api.progressMarkup({phase:'uploading',loaded:0,total:0}).includes('送信済み 0 B'),'0 bytes still renders, not blank');
+ check(envInd.api.statusMarkup({id:'no-state'},undefined).includes('未導入'),'no-state status falls back to 未導入');
+ check(envInd.api.statusMarkup({id:'no-state'},{status:'installed',size:5}).includes('導入済み'),'real pod file => 導入済み');
+
  // ---- bulk upload: one failure does not stop the rest
  //   (first file 409s via status, but we need per-file behavior: use a fresh env
  //    where all succeed, then assert 3 upload calls issued for 3 files)
@@ -196,7 +229,7 @@ function check(cond,label){if(!cond){console.error('FAIL: '+label);process.exit(
 
  console.log('file-only LoRA + backup behavioural validation OK');
 })().catch(e=>{console.error(e);process.exit(1);});
-""" % json.dumps(instrumented)
+""".replace("__SOURCE__", json.dumps(instrumented))
 
 subprocess.run(["node", "-e", harness], check=True)
 
