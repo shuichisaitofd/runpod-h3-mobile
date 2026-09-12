@@ -115,7 +115,7 @@ for forbidden in (
 # accept an arbitrary URL from the browser.
 assert "MANAGED_LORA_SPECS" in routes_text
 assert "GITHUB_RELEASE_API" in routes_text
-assert "H3_LORA_GITHUB_TOKEN" in routes_text
+assert "H3_LORA_GITHUB_TOKEN" not in routes_text
 
 # --- File-only add flow --------------------------------------------------
 assert 'accept=".safetensors" multiple' in js
