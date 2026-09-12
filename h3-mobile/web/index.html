@@ -47,6 +47,7 @@
 
 <section class="page" data-page="running"><div class="card"><div class="row"><h2 style="margin:0;flex:1">実行中</h2><button class="secondary" id="refreshQueue">更新</button></div><div id="queue"></div></div></section>
 <section class="page" data-page="history"><div class="card"><div class="history-head"><h2>履歴</h2><div class="history-tools"><div class="view-toggle"><button class="secondary active" id="historyListMode">リスト</button><button class="secondary" id="historyLargeMode">大サムネ</button></div><button class="secondary" id="downloadAll">一括ダウンロード</button><button class="secondary" id="refreshHistory">更新</button></div></div><div id="downloadMessage" class="small"></div><div id="historyList"></div></div></section>
+<section class="page" data-page="lora"><div id="h3LoraPage"></div></section>
 <section class="page" data-page="settings">
 <div class="card"><h2>モデル管理</h2><div class="small">必要なモデルだけRunPodへ直接ダウンロードします。</div><div class="model-actions"><button class="primary" id="prepareRef">Ref2VAを準備</button><button class="primary" id="prepareI2V">I2Vを準備</button></div><div id="modelMessage" class="notice hidden"></div><div id="modelList" class="model-list"><div class="small">モデル状態を確認中...</div></div></div>
 <div class="card"><h2>接続先Pod</h2><div class="small">RunPod PodのComfyUI Base URLを登録して切り替えられます。未登録のときはこのページの配信元へ直接接続します（APIキー等の認証情報は保存しません）。</div><div id="podList" class="model-list" style="margin-top:10px"></div><div class="grid2" style="margin-top:10px"><div><label>Pod名</label><input id="newPodName" placeholder="例: Pod A"></div><div><label>Base URL</label><input id="newPodUrl" placeholder="https://xxxx-8188.proxy.runpod.net"></div></div><div class="actions" style="margin-top:10px"><button class="secondary" id="addPod">追加</button></div><div id="podMessage" class="small" style="margin-top:8px"></div></div>
@@ -54,7 +55,7 @@
 </section>
 </main>
 </div>
-<nav class="bottom"><div class="bottomin"><button class="nav active" data-target="create">作成</button><button class="nav" data-target="batch">一括</button><button class="nav" data-target="running">実行中</button><button class="nav" data-target="history">履歴</button><button class="nav" data-target="settings">設定</button></div></nav>
+<nav class="bottom"><div class="bottomin"><button class="nav active" data-target="create">作成</button><button class="nav" data-target="batch">一括</button><button class="nav" data-target="running">実行中</button><button class="nav" data-target="history">履歴</button><button class="nav" data-target="lora">LoRA</button><button class="nav" data-target="settings">設定</button></div></nav>
 <div class="media-modal hidden" id="mediaModal" role="dialog" aria-modal="true"><button class="modal-close" id="modalClose" aria-label="閉じる">×</button><div class="modal-body" id="modalBody"></div></div>
 <script src="app.js"></script>
 <script src="copy-prompts.js"></script>
@@ -69,6 +70,8 @@
 <script src="media-library.js"></script>
 <script src="pod-runtime.js"></script>
 <script src="pod-billing.js"></script>
+<script src="lora-library.js"></script>
+<script src="prompt-library.js" data-h3-prompt-library="1"></script>
 <script>
 // Stop single-job timers when ComfyUI history reports completion, and freeze the final generation time.
 (()=>{function setStatus(card,text){if(!card)return;const spans=[...card.querySelectorAll('.meta span')];const status=spans.find(x=>/^(準備中|待機中|実行中|完了|失敗)$/.test((x.textContent||'').trim()));if(status){status.textContent=text;status.className=`job-status ${typeof h3StatusClass==='function'?h3StatusClass(text):''}`.trim();}}function terminal(item){const msgs=item?.status?.messages;if(Array.isArray(msgs)){for(const m of msgs){if(Array.isArray(m)&&['execution_success','execution_error','execution_interrupted'].includes(m[0]))return m[0];}}if(item?.status?.completed===true)return 'execution_success';const outputs=item?.outputs||{};const hasOutput=Object.values(outputs).some(node=>['videos','images','gifs','files','audio'].some(k=>Array.isArray(node?.[k])&&node[k].length));return hasOutput?'execution_success':null;}function secondsFrom(item,fallback){if(typeof historyExecutionSeconds==='function'){const s=historyExecutionSeconds(item);if(s!=null)return s;}return fallback;}function au(path){return typeof apiUrl==='function'?apiUrl(path):path;}

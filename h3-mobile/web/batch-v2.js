@@ -148,11 +148,13 @@ async function upload(file,index,slot=0){
 function seedFor(i){const mode=q('#batchSeedMode').value;const base=Number(q('#batchSeed').value)||0;if(mode==='fixed')return base;if(mode==='random')return randSeed();return base+i;}
 function setMsg(text,type=''){const el=q('#batchMessage');el.textContent=text;el.className=`notice ${type}`.trim();el.classList.remove('hidden');}
 function clearMsg(){q('#batchMessage').classList.add('hidden');}
-function applyBatchVariantDefaults(){if(batch.mode!=='ref2va')return;if(batch.refVariant==='03'){q('#batchSteps').value=4;q('#batchModeNote').innerHTML='Ref2VA 03: <b>Turbo LoRA + TurboSampler + Sol-Attn(int8_qk) + FusedModulation</b> / Steps・MP変更可';}else if(batch.refVariant==='05'){q('#batchSteps').value=16;q('#batchModeNote').innerHTML='Ref2VA 05: <b>SLA Attention + BlockCache Balanced</b> / Steps・MP変更可';}else if(batch.refVariant==='fast'){q('#batchSteps').value=16;q('#batchModeNote').innerHTML='Ref2VA 06 高速: <b>SLA Attention + Spectrum(高速設定)</b> / Steps・MP変更可';}else if(batch.refVariant==='stable'){q('#batchSteps').value=16;q('#batchModeNote').innerHTML='Ref2VA 06 安定: <b>SLA Attention + Spectrum(安定設定)</b> / Steps・MP変更可';}else{q('#batchSteps').value=14;q('#batchModeNote').innerHTML='Ref2VA 04: <b>Sol-Attn(int8_qk) + BlockCache Balanced</b> / Steps・MP変更可';}}
+function applyBatchVariantDefaults(){if(batch.mode!=='ref2va')return;if(batch.refVariant==='03'){q('#batchSteps').value=4;q('#batchModeNote').innerHTML='Ref2VA 03: <b>Turbo LoRA + TurboSampler + Sol-Attn(int8_qk) + FusedModulation</b> / Steps・MP変更可';}else if(batch.refVariant==='05'){q('#batchSteps').value=12;q('#batchModeNote').innerHTML='Ref2VA 05 LoRAテスト: <b>AIO 0.40 + Motion Booster 0.50 + SLA Attention + BlockCache Balanced</b> / Euler・Simple・12 steps';}else if(batch.refVariant==='fast'){q('#batchSteps').value=12;q('#batchModeNote').innerHTML='Ref2VA 06 高速 LoRAテスト: <b>AIO 0.40 + Motion Booster 0.50 + SLA Attention + Spectrum(高速設定)</b> / Euler・Simple・12 steps';}else if(batch.refVariant==='stable'){q('#batchSteps').value=12;q('#batchModeNote').innerHTML='Ref2VA 06 安定 LoRAテスト: <b>AIO 0.40 + Motion Booster 0.50 + SLA Attention + Spectrum(安定設定)</b> / Euler・Simple・12 steps';}else{q('#batchSteps').value=12;q('#batchModeNote').innerHTML='Ref2VA 04 LoRAテスト: <b>AIO 0.40 + Motion Booster 0.50 + Sol-Attn(int8_qk) + BlockCache Balanced</b> / Euler・Simple・12 steps';}}
 function setBatchVariant(v){if(batch.submitting)return;batch.refVariant=v;qa('#batchRefVariant [data-batch-variant]').forEach(b=>b.classList.toggle('active',b.dataset.batchVariant===v));applyBatchVariantDefaults();persistBatchMeta();}
 qa('#batchRefVariant [data-batch-variant]').forEach(b=>{if(!b.disabled)b.onclick=()=>setBatchVariant(b.dataset.batchVariant);});
 function setMode(mode){if(batch.submitting)return;batch.mode=mode;qa('[data-batch-mode]').forEach(b=>b.classList.toggle('active',b.dataset.batchMode===mode));const ref=mode==='ref2va';q('#batchI2VInputs').classList.toggle('hidden',ref);q('#batchRefInputs').classList.toggle('hidden',!ref);q('#batchStepsWrap').classList.toggle('hidden',!ref);q('#batchRefOptions').classList.toggle('hidden',!ref);q('#batchRatio').disabled=!ref;if(ref){q('#batchSec').value=6;q('#batchRatio').value='3:4';applyBatchVariantDefaults();}else{q('#batchSec').value=10;q('#batchRatio').value='元画像と同じ';q('#batchModeNote').innerHTML='I2V: <b>Turbo + Sage / 4step固定</b>'; }render();}
 qa('[data-batch-mode]').forEach(b=>b.onclick=()=>setMode(b.dataset.batchMode));
+window.h3CaptureBatchPreset=()=>{const ctx=batch.mode==='ref2va'?`ref:${batch.refVariant}`:'i2v';return{kind:'batch',mode:batch.mode,refVariant:batch.refVariant,prompt:q('#batchPrompt').value,seconds:Number(q('#batchSec').value),steps:batch.mode==='ref2va'?Number(q('#batchSteps').value):null,megapixels:Number(q('#batchMp').value),ratio:q('#batchRatio').value,ref_image_size:q('#batchRefSize').value,seedMode:q('#batchSeedMode').value,seed:Number(q('#batchSeed').value),loras:typeof window.h3LoraPresetSnapshot==='function'?window.h3LoraPresetSnapshot(ctx):[]};};
+window.h3ApplyBatchPreset=preset=>{if(batch.submitting||!preset||typeof preset!=='object')return;if(preset.mode==='i2v'||preset.mode==='ref2va')setMode(preset.mode);if(preset.refVariant!=null)setBatchVariant(String(preset.refVariant));if(preset.prompt!=null)q('#batchPrompt').value=String(preset.prompt);if(preset.seconds!=null)q('#batchSec').value=preset.seconds;if(preset.steps!=null)q('#batchSteps').value=preset.steps;if(preset.megapixels!=null)q('#batchMp').value=preset.megapixels;if(preset.ratio!=null)q('#batchRatio').value=preset.ratio;if(preset.ref_image_size!=null)q('#batchRefSize').value=preset.ref_image_size;if(preset.seedMode!=null)q('#batchSeedMode').value=preset.seedMode;if(preset.seed!=null)q('#batchSeed').value=preset.seed;const ctx=batch.mode==='ref2va'?`ref:${batch.refVariant}`:'i2v';if(Array.isArray(preset.loras)&&typeof window.h3ApplyLoraPreset==='function')window.h3ApplyLoraPreset(ctx,preset.loras);persistBatchMeta();render();if(typeof renderQuick==='function')renderQuick();};
 function filePreview(file){return file?URL.createObjectURL(file):'';}
 function renderI2V(){const root=q('#batchI2VList');root.innerHTML='';batch.i2vFiles.forEach((f,i)=>{const d=document.createElement('div');d.className='batch-item';d.innerHTML=`<img class="batch-thumb" src="${filePreview(f)}"><div class="batch-item-body"><b>${i+1}. ${esc(f.name)}</b><div class="small">Seed: ${seedFor(i)}</div></div><button class="secondary batch-remove" type="button">削除</button>`;d.querySelector('.batch-remove').onclick=()=>{if(batch.submitting)return;batch.i2vFiles.splice(i,1);render();persistBatchImages();};root.appendChild(d);});q('#batchI2VCount').textContent=`${batch.i2vFiles.length} / ${MAX}`;}
 function refSetHtml(set,i){return `<div class="row"><b style="flex:1">セット ${i+1}</b><button class="secondary batch-remove-set" type="button">削除</button></div><div class="ref-slot-grid">${[0,1,2,3].map(slot=>{const f=set.files[slot];return `<label class="ref-slot ${f?'has-file':''}"><span>${slot===0?'参照1 メイン':'参照'+(slot+1)+' 任意'}</span>${f?`<img src="${filePreview(f)}"><small>${esc(f.name)}</small>`:'<b>＋ 選択</b>'}<input type="file" accept="image/*" data-set="${i}" data-slot="${slot}"></label>`}).join('')}</div><div class="small">Seed: ${seedFor(i)}</div>`;}
@@ -176,8 +178,8 @@ function setCardElapsed(card,text){if(!card)return;const el=card.querySelector('
 // determines 待機中/実行中/完了/失敗 and elapsed time uniformly for both —
 // no separate batch-only status logic to keep in sync.
 async function waitJobDone(id){for(;;){await sleep(300);if(typeof state==='undefined'||!state.jobs)return {result:null};const job=state.jobs.get(id);if(job&&job.done)return job;}}
-async function buildI2V(image,index,cfg){const wf=await jf(au('/h3-mobile/api/workflow/i2v'));wf['114'].inputs.image=image;wf['119'].inputs.megapixels=cfg.mp;wf['105:104'].inputs.prompt=cfg.prompt;wf['105:111'].inputs.value=cfg.seconds;wf['105:15'].inputs.noise_seed=cfg.seed;wf['92'].inputs.filename_prefix='video/'+cfg.prefix;return {wf,extra:{...cfg,mode:'i2v',image0:image,batch:true,batch_index:index+1}};}
-async function buildRef(names,index,cfg){const wf=await jf(au(`/h3-mobile/api/workflow/${typeof ref2vaWorkflowName==='function'?ref2vaWorkflowName(batch.refVariant):(batch.refVariant==='03'?'ref2va_03':batch.refVariant==='05'?'ref2va_05':batch.refVariant==='fast'?'ref2va_06_fast':batch.refVariant==='stable'?'ref2va_06_stable':'ref2va_04')}`));wf['137'].inputs.image=names[0];if(names[1])wf['139'].inputs.image=names[1];else{delete wf['139'];delete wf['136'].inputs['ref_images.ref_image_1'];}
+async function buildI2V(image,index,cfg){const wf=await jf(au('/h3-mobile/api/workflow/i2v'));if(typeof window.h3ApplyLoraSnapshot==='function')window.h3ApplyLoraSnapshot(wf,cfg.loraSnapshot);wf['114'].inputs.image=image;wf['119'].inputs.megapixels=cfg.mp;wf['105:104'].inputs.prompt=cfg.prompt;wf['105:111'].inputs.value=cfg.seconds;wf['105:15'].inputs.noise_seed=cfg.seed;wf['92'].inputs.filename_prefix='video/'+cfg.prefix;return {wf,extra:{...cfg,mode:'i2v',image0:image,batch:true,batch_index:index+1}};}
+async function buildRef(names,index,cfg){const variant=cfg.refVariant;const wf=await jf(au(`/h3-mobile/api/workflow/${typeof ref2vaWorkflowName==='function'?ref2vaWorkflowName(variant):(variant==='03'?'ref2va_03':variant==='05'?'ref2va_05':variant==='fast'?'ref2va_06_fast':variant==='stable'?'ref2va_06_stable':'ref2va_04')}`));if(typeof window.h3ApplyLoraSnapshot==='function')window.h3ApplyLoraSnapshot(wf,cfg.loraSnapshot);wf['137'].inputs.image=names[0];if(names[1])wf['139'].inputs.image=names[1];else{delete wf['139'];delete wf['136'].inputs['ref_images.ref_image_1'];}
 if(names[2]){wf['h3mobile_ref3']={inputs:{image:names[2]},class_type:'LoadImage',_meta:{title:'参照画像3'}};wf['136'].inputs['ref_images.ref_image_2']=['h3mobile_ref3',0];}else delete wf['136'].inputs['ref_images.ref_image_2'];
 if(names[3]){wf['h3mobile_ref4']={inputs:{image:names[3]},class_type:'LoadImage',_meta:{title:'参照画像4'}};wf['136'].inputs['ref_images.ref_image_3']=['h3mobile_ref4',0];}else delete wf['136'].inputs['ref_images.ref_image_3'];
 wf['138'].inputs.value=cfg.prompt;wf['132'].inputs.value=cfg.seconds;wf['124'].inputs.steps=cfg.steps;wf['115'].inputs.aspect_ratio=apiRatio(cfg.ratio);wf['115'].inputs.megapixels=cfg.mp;wf['129'].inputs.noise_seed=cfg.seed;wf['136'].inputs.ref_image_size=cfg.ref_image_size;wf['92'].inputs.filename_prefix='video/'+cfg.prefix;return {wf,extra:{...cfg,mode:'ref2va',variant:typeof refVariantLabel==='function'?refVariantLabel(batch.refVariant):batch.refVariant,image0:names[0],image1:names[1]||null,image2:names[2]||null,image3:names[3]||null,batch:true,batch_index:index+1}};}
@@ -185,14 +187,19 @@ async function queueOne(wf,extra){return jf(au('/prompt'),{method:'POST',headers
 function safe(v){return String(v||'H3').replace(/[\\/:*?\"<>|]+/g,'_').slice(0,80);}
 async function start(){
   if(batch.submitting)return;
-  const prompt=q('#batchPrompt').value.trim();
-  if(!prompt){setMsg('プロンプトを入力してください。','danger');return;}
-  const jobs=batch.mode==='i2v'?batch.i2vFiles.map(f=>({file:f,title:f.name})):batch.refSets.filter(s=>s.files[0]).map((s,i)=>({set:s,title:`参照セット ${i+1}`}));
+  const inputPrompt=q('#batchPrompt').value.trim();
+  if(!inputPrompt){setMsg('プロンプトを入力してください。','danger');return;}
+  const runMode=batch.mode,runRefVariant=batch.refVariant;
+  const refCtx=`ref:${runRefVariant}`;
+  const loraCtx=runMode==='ref2va'?refCtx:'i2v';
+  const loraSnapshot=typeof window.h3LoraSnapshot==='function'?window.h3LoraSnapshot(loraCtx):[];
+  const prompt=runMode==='ref2va'&&shouldAddRef2VADynv2(refCtx)?ensureRef2VADynv2(inputPrompt):inputPrompt;
+  const jobs=runMode==='i2v'?batch.i2vFiles.map(f=>({file:f,title:f.name})):batch.refSets.filter(s=>s.files[0]).map((s,i)=>({set:s,title:`参照セット ${i+1}`}));
   if(!jobs.length){setMsg('生成する画像を選択してください。','danger');return;}
   const seconds=Math.max(1,Number(q('#batchSec').value)||1);
   const mp=Math.min(2,Math.max(.1,Number(q('#batchMp').value)||.5));
-  const steps=Math.max(1,Number(q('#batchSteps').value)||(typeof defaultStepsForVariant==='function'?defaultStepsForVariant(batch.refVariant):14));
-  const ratio=batch.mode==='i2v'?'元画像と同じ':q('#batchRatio').value;
+  const steps=Math.max(1,Number(q('#batchSteps').value)||(typeof defaultStepsForVariant==='function'?defaultStepsForVariant(batch.refVariant):12));
+  const ratio=runMode==='i2v'?'元画像と同じ':q('#batchRatio').value;
   const refSize=q('#batchRefSize').value;
   const batchTitle=q('#batchTitle').value.trim()||'一括生成';
   // Snapshot every setting this run depends on at the moment it starts. All
@@ -203,10 +210,10 @@ async function start(){
   // run — this run's cards, snapshot, and progress counter are independent
   // closures, not references into the shared `batch` state object.
   const runSnapshot={
-    title:batchTitle,prompt,mode:batch.mode,refVariant:batch.mode==='ref2va'?batch.refVariant:null,
-    seconds,steps:batch.mode==='ref2va'?steps:null,mp,ratio,
+    title:batchTitle,prompt,mode:runMode,refVariant:runMode==='ref2va'?runRefVariant:null,
+    seconds,steps:runMode==='ref2va'?steps:null,mp,ratio,
     seedMode:q('#batchSeedMode').value,seedBase:Number(q('#batchSeed').value),
-    refSize:batch.mode==='ref2va'?refSize:null,
+    refSize:runMode==='ref2va'?refSize:null,
     targets:jobs.map(j=>j.title),jobCount:jobs.length
   };
   batch.submitting=true;render();clearMsg();
@@ -237,8 +244,8 @@ async function start(){
   note.textContent='先に全画像をRunPodへ保存し、全ジョブをComfyUIのQueueへ1→2→3の順に投入します。生成自体はComfyUI側で順次処理されます。';
   group.appendChild(note);
 
-  const modeLabel=batch.mode==='ref2va'?`Ref2VA ${typeof refVariantLabel==='function'?refVariantLabel(batch.refVariant):batch.refVariant}`:'I2V';
-  const cardSteps=batch.mode==='ref2va'?steps:null;
+  const modeLabel=runMode==='ref2va'?`Ref2VA ${typeof refVariantLabel==='function'?refVariantLabel(runRefVariant):runRefVariant}`:'I2V';
+  const cardSteps=runMode==='ref2va'?steps:null;
   const cards=jobs.map((j,i)=>{
     const c=typeof jobCard==='function'
       ?jobCard(`${batchTitle} ${i+1}`,modeLabel,seconds,cardSteps,ratio,mp,prompt,'準備中')
@@ -257,7 +264,7 @@ async function start(){
   for(let i=0;i<jobs.length;i++){
     try{
       setCardStatus(cards[i],'準備中');setCardElapsed(cards[i],'画像をRunPodへアップロード中');
-      if(batch.mode==='i2v'){
+      if(runMode==='i2v'){
         prepared[i]={image:await upload(jobs[i].file,i,0),title:jobs[i].title};
       }else{
         const names=[];
@@ -290,8 +297,8 @@ async function start(){
     const prefix=safe(`${batchTitle}_${String(i+1).padStart(2,'0')}`);
     const card=cards[i];
     try{
-      const cfg={title:`${batchTitle} ${i+1}`,batch_title:batchTitle,prompt,seconds,megapixels:mp,mp,steps:batch.mode==='ref2va'?steps:null,ratio,seed,ref_image_size:refSize,prefix};
-      const built=batch.mode==='i2v'?await buildI2V(prepared[i].image,i,cfg):await buildRef(prepared[i].names,i,cfg);
+      const cfg={title:`${batchTitle} ${i+1}`,batch_title:batchTitle,prompt,seconds,megapixels:mp,mp,steps:runMode==='ref2va'?steps:null,ratio,seed,ref_image_size:refSize,prefix,loraSnapshot,refVariant:runRefVariant};
+      const built=runMode==='i2v'?await buildI2V(prepared[i].image,i,cfg):await buildRef(prepared[i].names,i,cfg);
       const queued=await queueOne(built.wf,built.extra);
       const startedAt=Date.now();
       const metaEl=card?.querySelector('.meta');
