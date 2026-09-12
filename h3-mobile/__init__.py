@@ -1,5 +1,6 @@
 from pathlib import Path
 import asyncio
+import hashlib
 import os
 import shutil
 import tempfile
@@ -50,8 +51,57 @@ MODEL_SPECS = {
 }
 MODE_SETS = {"ref2va": ["ref2va", "qwen", "video_vae", "audio_vae", "turbo_lora"], "i2v": ["fl2va", "qwen", "video_vae", "audio_vae", "turbo_lora"]}
 _download_tasks = {}
-_download_state = {key: {"status": "installed" if spec["path"].is_file() else "missing", "downloaded": 0, "total": None, "error": None} for key, spec in MODEL_SPECS.items()}
+_verified_files = {}
+_download_state = {
+    key: {
+        # Files with an expected digest are not called installed until they have
+        # actually been verified during this process lifetime.
+        "status": "installed" if spec["path"].is_file() and not spec.get("sha256") else "missing",
+        "downloaded": 0,
+        "total": None,
+        "error": None,
+    }
+    for key, spec in MODEL_SPECS.items()
+}
 routes = PromptServer.instance.routes
+
+
+class SHA256MismatchError(RuntimeError):
+    pass
+
+
+def _file_fingerprint(path):
+    stat = path.stat()
+    return stat.st_size, stat.st_mtime_ns
+
+
+def _is_verified(key):
+    path = MODEL_SPECS[key]["path"]
+    if not path.is_file():
+        return False
+    return _verified_files.get(key) == _file_fingerprint(path)
+
+
+def _model_file_ready(key):
+    spec = MODEL_SPECS[key]
+    path = spec["path"]
+    if not path.is_file() or path.stat().st_size <= 0:
+        return False
+    return _is_verified(key) if spec.get("sha256") else True
+
+
+def _verify_sha256(key, path):
+    expected = MODEL_SPECS[key].get("sha256")
+    if not expected:
+        return
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+    actual = digest.hexdigest()
+    if actual.lower() != expected.lower():
+        raise SHA256MismatchError(f"SHA256 mismatch: expected {expected}, got {actual}")
+    _verified_files[key] = _file_fingerprint(path)
 
 
 def _model_state_payload():
@@ -59,10 +109,12 @@ def _model_state_payload():
     for key, spec in MODEL_SPECS.items():
         state = dict(_download_state[key])
         path = spec["path"]
-        if path.is_file():
+        if _model_file_ready(key):
             state["status"] = "installed"
             state["downloaded"] = path.stat().st_size
             state["total"] = path.stat().st_size
+        elif state["status"] == "installed":
+            state.update(status="missing", downloaded=0, total=None)
         state.update({"key": key, "label": spec["label"], "filename": path.name})
         result[key] = state
     return result
@@ -89,15 +141,19 @@ async def _download_one(key):
     dest = spec["path"]
     tmp = Path(str(dest) + ".part")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if dest.is_file() and dest.stat().st_size > 0:
-        _download_state[key].update(status="installed", downloaded=dest.stat().st_size, total=dest.stat().st_size, error=None)
-        return
     state = _download_state[key]
-    state.update(status="downloading", error=None)
-    existing = tmp.stat().st_size if tmp.is_file() else 0
-    headers = {"Range": f"bytes={existing}-"} if existing else {}
-    timeout = aiohttp.ClientTimeout(total=None, connect=60, sock_read=180)
     try:
+        if dest.is_file() and dest.stat().st_size > 0:
+            size = dest.stat().st_size
+            state.update(status="queued", downloaded=size, total=size, error=None)
+            await asyncio.to_thread(_verify_sha256, key, dest)
+            state.update(status="installed", downloaded=size, total=size, error=None)
+            return
+
+        state.update(status="downloading", error=None)
+        existing = tmp.stat().st_size if tmp.is_file() else 0
+        headers = {"Range": f"bytes={existing}-"} if existing else {}
+        timeout = aiohttp.ClientTimeout(total=None, connect=60, sock_read=180)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(spec["url"], headers=headers, allow_redirects=True) as response:
                 if response.status not in (200, 206):
@@ -114,16 +170,56 @@ async def _download_one(key):
                     async for chunk in response.content.iter_chunked(8 * 1024 * 1024):
                         f.write(chunk)
                         state["downloaded"] += len(chunk)
+        await asyncio.to_thread(_verify_sha256, key, tmp)
         os.replace(tmp, dest)
+        if spec.get("sha256"):
+            _verified_files[key] = _file_fingerprint(dest)
         size = dest.stat().st_size
         state.update(status="installed", downloaded=size, total=size, error=None)
     except asyncio.CancelledError:
         state["status"] = "paused"
         raise
+    except SHA256MismatchError as exc:
+        # Keep a failed .part file as .part; it must never become the formal
+        # model file. An existing formal file is likewise left untouched so
+        # the mismatch remains visible and recoverable to the operator.
+        state.update(status="sha256_error", error=str(exc))
     except Exception as exc:
         state.update(status="error", error=str(exc))
     finally:
         _download_tasks.pop(key, None)
+
+
+def _schedule_model_set(mode):
+    """Start missing downloads for one mode without blocking the web server."""
+    started, skipped = [], []
+    for key in MODE_SETS[mode]:
+        if _model_file_ready(key):
+            skipped.append(key)
+            continue
+        task = _download_tasks.get(key)
+        if task and not task.done():
+            skipped.append(key)
+            continue
+        _download_state[key].update(status="queued", error=None)
+        _download_tasks[key] = asyncio.create_task(_download_one(key))
+        started.append(key)
+    return started, skipped
+
+
+async def _auto_prepare_i2v_on_startup(_app):
+    # I2V is the only set prepared automatically. Ref2VA remains an explicit
+    # user action through /api/models/prepare so its large model is not fetched
+    # on Pods that only need image-to-video generation.
+    started, skipped = _schedule_model_set("i2v")
+    print(
+        "[H3] I2V model auto-prepare: "
+        f"started={','.join(started) or '-'} skipped={','.join(skipped) or '-'}"
+    )
+
+
+if _auto_prepare_i2v_on_startup not in PromptServer.instance.app.on_startup:
+    PromptServer.instance.app.on_startup.append(_auto_prepare_i2v_on_startup)
 
 
 @routes.get("/h3")
@@ -214,20 +310,11 @@ async def h3_mobile_prepare_models(request):
     mode = body.get("mode")
     if mode not in MODE_SETS:
         raise web.HTTPBadRequest(text="mode must be ref2va or i2v")
-    started, skipped = [], []
-    for key in MODE_SETS[mode]:
-        spec = MODEL_SPECS[key]
-        if spec["path"].is_file() and spec["path"].stat().st_size > 0:
-            skipped.append(key); continue
-        task = _download_tasks.get(key)
-        if task and not task.done():
-            skipped.append(key); continue
-        _download_state[key].update(status="queued", error=None)
-        _download_tasks[key] = asyncio.create_task(_download_one(key))
-        started.append(key)
+    started, skipped = _schedule_model_set(mode)
     return web.json_response({"ok": True, "mode": mode, "started": started, "skipped": skipped})
 
 from . import extra_routes  # register additional H3 Mobile endpoints
+from . import lora_routes  # register dynamic LoRA manager endpoints
 
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}

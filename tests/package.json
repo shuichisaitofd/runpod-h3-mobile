@@ -1,0 +1,8 @@
+{
+  "name": "h3-mobile-browser-tests",
+  "private": true,
+  "description": "Dev-only: Playwright for tests/integration_lora_upload_browser.mjs",
+  "devDependencies": {
+    "playwright": "1.55.0"
+  }
+}
