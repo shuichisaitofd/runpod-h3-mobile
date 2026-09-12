@@ -130,6 +130,7 @@ function formatBytes(value){if(value==null)return'--';const units=['B','KB','MB'
 const uploadState=new Map(); // id -> {phase:'queued'|'uploading'|'verifying'|'error', loaded, total, since, message, detail}
 const retryFiles=new Map();  // id -> File, so a failed card's [再試行] can resend
 let lastPodFiles=new Map();   // cache of the last successful /loras/files
+let lastManagedDownloads=new Map(); // server-owned GitHub Release downloads
 let podFilesWarning='';       // set when a refresh failed; shown, never destructive
 let uploadTicker=null;        // 1s heartbeat so a stalled upload never looks frozen
 function setUploadState(id,patch){uploadState.set(id,{...(uploadState.get(id)||{}),...patch});}
@@ -232,15 +233,28 @@ async function runUpload(item,file){
 // Self-heal: while a /loras/files refresh is failing, keep retrying in the
 // background so the Pod summary and any stale rows recover on their own.
 let refreshTimer=null;
+function hasActiveManagedDownload(){for(const state of lastManagedDownloads.values())if(['queued','downloading','verifying'].includes(state.status))return true;return false;}
+function managedDownloadSummary(){
+ const states=[...lastManagedDownloads.values()];if(!states.length)return'';
+ const installed=states.filter(state=>state.status==='installed').length;
+ const active=states.filter(state=>['queued','downloading','verifying'].includes(state.status)).length;
+ const auth=states.some(state=>state.status==='auth_required');
+ const errors=states.filter(state=>state.status==='error').length;
+ if(active)return`GitHubから自動取得中 ${installed}/${states.length}件`;
+ if(installed===states.length)return`GitHub自動取得 ${installed}/${states.length}件 完了`;
+ if(auth)return'GitHub自動取得: RunPod Secretの設定が必要です';
+ if(errors)return`GitHub自動取得エラー ${errors}件`;
+ return`GitHub自動取得 ${installed}/${states.length}件`;
+}
 function scheduleRefresh(){
  if(refreshTimer)return;
  refreshTimer=setInterval(async()=>{
-  try{lastPodFiles=await podFiles();podFilesWarning='';clearInterval(refreshTimer);refreshTimer=null;paintManager();}
+  try{lastPodFiles=await podFiles();podFilesWarning='';paintManager();if(!hasActiveManagedDownload()){clearInterval(refreshTimer);refreshTimer=null;}}
   catch{/* keep retrying */}
  },4000);
 }
 
-async function podFiles(){const response=await fetch(apiUrl('/h3-mobile/api/loras/files'));if(!response.ok)throw new Error(await response.text());const data=await response.json();return new Map((data.files||[]).map(item=>[item.filename,item]));}
+async function podFiles(){const response=await fetch(apiUrl('/h3-mobile/api/loras/files'));if(!response.ok)throw new Error(await response.text());const data=await response.json();lastManagedDownloads=new Map((data.managed||[]).map(item=>[item.filename,item]));return new Map((data.files||[]).map(item=>[item.filename,item]));}
 function isInstalledFile(file){return !!file&&file.status==='installed'&&Number(file.size)>0;}
 function restoreCandidates(fileMap){return loadLib().filter(item=>!isInstalledFile(fileMap.get(item.filename)));}
 
@@ -309,7 +323,9 @@ function paintManager(fileMap){
  if(summary){
   const missing=restoreCandidates(files);
   const base=missing.length?`未導入 ${missing.length}件: ${missing.map(item=>item.name).join(', ')}`:'すべてのLoRAがPod上にあります。';
-  summary.textContent=podFilesWarning?`${base}（${podFilesWarning}）`:base;
+  const managed=managedDownloadSummary();
+  const message=managed?`${base} / ${managed}`:base;
+  summary.textContent=podFilesWarning?`${message}（${podFilesWarning}）`:message;
  }
 }
 // Refresh the real Pod file list, then paint. A failed/slow /loras/files (very
@@ -321,7 +337,8 @@ async function renderManager(){
  try{
   lastPodFiles=await podFiles();
   podFilesWarning='';
-  if(refreshTimer){clearInterval(refreshTimer);refreshTimer=null;}
+  if(hasActiveManagedDownload())scheduleRefresh();
+  else if(refreshTimer){clearInterval(refreshTimer);refreshTimer=null;}
  }catch(error){
   podFilesWarning='Pod状態を更新できません';
   scheduleRefresh();
