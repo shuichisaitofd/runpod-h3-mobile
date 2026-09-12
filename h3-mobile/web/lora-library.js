@@ -4,7 +4,7 @@
 const LIB_KEY='h3MobileLoraLibraryV1';
 const LEGACY_SEL_KEY='h3MobileLoraSelectionsV1';
 const CATALOG_VERSION_KEY='h3MobileLoraCatalogVersion';
-const CATALOG_VERSION='default-12-v1';
+const CATALOG_VERSION='default-15-v2';
 const PROJECTS_KEY='h3MobileProjects';
 const ACTIVE_PROJECT_KEY='h3MobileActiveProjectId';
 const PRESET_KEY='h3MobileGenerationPresetsV2';
@@ -18,10 +18,13 @@ const DEFAULT_LORA_CATALOG=Object.freeze([
  {id:'default-aio-v25',name:'AIO v2.5',filename:'AIO_v2.5.safetensors'},
  {id:'default-bj-v3',name:'BJ v3',filename:'BJ_v3.safetensors'},
  {id:'default-finger-bean-v1',name:'Finger BEAN v1',filename:'Finger_BEAN_v1.safetensors'},
+ {id:'default-hm-cumshot-v2',name:'HM Cumshot V2',filename:'HMCumshot_V2.safetensors'},
  {id:'default-deepthroat-v02',name:'deepthroat v02',filename:'deepthroat_v02.safetensors'},
  {id:'default-squirt-hm-v1',name:'Squirt HM v1',filename:'Squirt_HM_v1.safetensors'},
+ {id:'default-squirt-hm-v2',name:'Squirt HM v2',filename:'Squirt_HM_v2.safetensors.safetensors'},
  {id:'default-nipple-v2',name:'Nipple v2',filename:'Nipple_v2.safetensors'},
  {id:'default-panties-v1',name:'Panties v1',filename:'Panties_v1.safetensors'},
+ {id:'default-passionate-kiss',name:'Passionate Kiss',filename:'Passionate_Kiss.safetensors'},
  {id:'default-motion-fl2va-v2',name:'Motion FL2VA v2',filename:'Motion_FL2VA_v2.safetensors'},
  {id:'default-motion-ref2va-v2',name:'Motion REF2VA v2',filename:'Motion_REF2VA_v2.safetensors'},
  {id:'default-mystic-fl2va-v4',name:'Mystic FL2VA v4',filename:'Mystic_FL2VA_v4.safetensors'},
