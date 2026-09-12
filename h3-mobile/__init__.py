@@ -190,6 +190,38 @@ async def _download_one(key):
         _download_tasks.pop(key, None)
 
 
+def _schedule_model_set(mode):
+    """Start missing downloads for one mode without blocking the web server."""
+    started, skipped = [], []
+    for key in MODE_SETS[mode]:
+        if _model_file_ready(key):
+            skipped.append(key)
+            continue
+        task = _download_tasks.get(key)
+        if task and not task.done():
+            skipped.append(key)
+            continue
+        _download_state[key].update(status="queued", error=None)
+        _download_tasks[key] = asyncio.create_task(_download_one(key))
+        started.append(key)
+    return started, skipped
+
+
+async def _auto_prepare_i2v_on_startup(_app):
+    # I2V is the only set prepared automatically. Ref2VA remains an explicit
+    # user action through /api/models/prepare so its large model is not fetched
+    # on Pods that only need image-to-video generation.
+    started, skipped = _schedule_model_set("i2v")
+    print(
+        "[H3] I2V model auto-prepare: "
+        f"started={','.join(started) or '-'} skipped={','.join(skipped) or '-'}"
+    )
+
+
+if _auto_prepare_i2v_on_startup not in PromptServer.instance.app.on_startup:
+    PromptServer.instance.app.on_startup.append(_auto_prepare_i2v_on_startup)
+
+
 @routes.get("/h3")
 async def h3_short_url(request):
     raise web.HTTPFound("/h3-mobile/")
@@ -278,16 +310,7 @@ async def h3_mobile_prepare_models(request):
     mode = body.get("mode")
     if mode not in MODE_SETS:
         raise web.HTTPBadRequest(text="mode must be ref2va or i2v")
-    started, skipped = [], []
-    for key in MODE_SETS[mode]:
-        if _model_file_ready(key):
-            skipped.append(key); continue
-        task = _download_tasks.get(key)
-        if task and not task.done():
-            skipped.append(key); continue
-        _download_state[key].update(status="queued", error=None)
-        _download_tasks[key] = asyncio.create_task(_download_one(key))
-        started.append(key)
+    started, skipped = _schedule_model_set(mode)
     return web.json_response({"ok": True, "mode": mode, "started": started, "skipped": skipped})
 
 from . import extra_routes  # register additional H3 Mobile endpoints
