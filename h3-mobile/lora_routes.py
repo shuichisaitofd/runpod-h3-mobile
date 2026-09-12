@@ -20,7 +20,6 @@ GITHUB_RELEASE_API = (
     "https://api.github.com/repos/shuichisaitofd/h3-lora-assets/"
     "releases/tags/h3-loras-v1"
 )
-GITHUB_TOKEN_ENV = "H3_LORA_GITHUB_TOKEN"
 MANAGED_LORA_SPECS = {
     "BJ_v3.safetensors": "fbb93a67b429c79145c95598e9ac38388ad49d6df1c09c96cf989cce99277d53",
     "deepthroat_v02.safetensors": "1fd239662f6290255b0bb3a220764fb53aab2859378f7fd3024030c1e1991cb2",
@@ -36,7 +35,7 @@ MANAGED_LORA_SPECS = {
 
 # User-supplied LoRAs remain file-upload only; there is no user URL/Civitai
 # path. Separately, the fixed server-owned manifest above may fetch only the
-# named, SHA-pinned assets from the private GitHub Release.
+# named, SHA-pinned assets from the public GitHub Release.
 _UPLOAD_LOCKS = {}
 _ACTIVE_UPLOADS = set()
 
@@ -153,15 +152,11 @@ def _managed_state_payload():
 
 
 def _github_headers(accept: str) -> dict:
-    token = os.environ.get(GITHUB_TOKEN_ENV, "").strip()
-    headers = {
+    return {
         "Accept": accept,
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "h3-mobile-runpod",
     }
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
 
 
 async def _verify_managed_file(filename: str, path: Path) -> None:
@@ -239,15 +234,6 @@ async def _download_managed_lora(session, filename: str, asset: dict) -> None:
 
 async def _sync_managed_loras() -> None:
     global _MANAGED_DOWNLOAD_TASK
-    token = os.environ.get(GITHUB_TOKEN_ENV, "").strip()
-    if not token:
-        message = f"RunPod Secret {GITHUB_TOKEN_ENV} is not configured"
-        for state in _MANAGED_DOWNLOAD_STATE.values():
-            state.update(status="auth_required", error=message)
-        print(f"[H3] Managed LoRA auto-download skipped: {message}")
-        _MANAGED_DOWNLOAD_TASK = None
-        return
-
     timeout = aiohttp.ClientTimeout(total=None, connect=60, sock_read=180)
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
