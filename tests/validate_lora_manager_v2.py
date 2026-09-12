@@ -22,6 +22,12 @@ batch = (WEB / "batch-v2.js").read_text()
 # Import structure: the aiohttp.web binding used by /h3 redirects must never be
 # replaced by a package named web.
 tree = ast.parse(init_text)
+routes_tree = ast.parse(routes_text)
+route_functions = {
+    node.name: node
+    for node in routes_tree.body
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+}
 assert any(
     isinstance(node, ast.ImportFrom)
     and node.module == "aiohttp"
@@ -79,25 +85,37 @@ for forbidden in (
 assert "function stripUrlFields(item)" in js
 assert js.count("sourceType") == 1 and js.count("pendingInstallMethod") == 1
 
-# --- URL / Civitai removal, backend --------------------------------------
+# --- User-controlled URL / Civitai removal, backend ----------------------
 for forbidden in (
     "/h3-mobile/api/loras/resolve",
     "/h3-mobile/api/loras/download",
-    "import aiohttp",
-    "aiohttp.ClientSession",
     "_download_worker",
     "_probe_download",
     "_validate_public_url",
     "_request_headers",
-    "allow_redirects",
-    "Authorization",
-    "Bearer",
     "civitai",
     "_REDIRECT_CODES",
     "_DOWNLOAD_TASKS",
-    "redirect",
 ):
     assert forbidden not in routes_text, forbidden
+
+user_upload_source = ast.get_source_segment(
+    routes_text, route_functions["h3_mobile_lora_upload"]
+)
+for forbidden in (
+    "aiohttp.ClientSession",
+    "allow_redirects",
+    "Authorization",
+    "Bearer",
+    "redirect",
+):
+    assert forbidden not in user_upload_source, forbidden
+
+# The automatic downloader is a separate server-owned allowlist. It cannot
+# accept an arbitrary URL from the browser.
+assert "MANAGED_LORA_SPECS" in routes_text
+assert "GITHUB_RELEASE_API" in routes_text
+assert "H3_LORA_GITHUB_TOKEN" in routes_text
 
 # --- File-only add flow --------------------------------------------------
 assert 'accept=".safetensors" multiple' in js
@@ -194,10 +212,16 @@ with tempfile.TemporaryDirectory() as temp_dir:
     )
     sys.modules["aiohttp"] = types.SimpleNamespace(web=fake_web)
     sys.modules["folder_paths"] = types.SimpleNamespace(
-        get_folder_paths=lambda _kind: [str(temp)], models_dir=str(temp)
+        get_folder_paths=lambda _kind: [str(temp)],
+        get_filename_list=lambda _kind: [],
+        models_dir=str(temp),
     )
     sys.modules["server"] = types.SimpleNamespace(
-        PromptServer=types.SimpleNamespace(instance=types.SimpleNamespace(routes=Routes()))
+        PromptServer=types.SimpleNamespace(
+            instance=types.SimpleNamespace(
+                routes=Routes(), app=types.SimpleNamespace(on_startup=[])
+            )
+        )
     )
     try:
         spec = importlib.util.spec_from_file_location("h3_lora_routes_fileonly", MOBILE / "lora_routes.py")

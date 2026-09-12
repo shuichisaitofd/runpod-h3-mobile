@@ -1,3 +1,4 @@
+import ast
 import subprocess
 from pathlib import Path
 
@@ -7,6 +8,12 @@ WEB = MOBILE / "web"
 
 js = (WEB / "lora-library.js").read_text()
 routes = (MOBILE / "lora_routes.py").read_text()
+route_tree = ast.parse(routes)
+route_functions = {
+    node.name: node
+    for node in route_tree.body
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+}
 run = (ROOT / "run.sh").read_text()
 index = (WEB / "index.html").read_text()
 
@@ -70,8 +77,8 @@ assert "全設定バックアップ" in js and "全設定を復元" in js
 assert "XMLHttpRequest" in js and "xhr.upload.onprogress" in js
 assert "検証中" in js and "導入失敗" in js and "再試行" in js
 
-# Backend: file-only endpoints only. resolve/download and the aiohttp
-# downloader are gone; upload/files/delete remain.
+# Backend: user-controlled installation remains file-only. The only downloader
+# is the fixed, SHA-pinned private GitHub Release manifest.
 for endpoint in (
     "/h3-mobile/api/loras/files",
     "/h3-mobile/api/loras/upload",
@@ -82,15 +89,21 @@ for endpoint in (
 for forbidden in (
     "/h3-mobile/api/loras/resolve",
     "/h3-mobile/api/loras/download",
-    "import aiohttp",
     "_download_worker",
     "_probe_download",
-    "allow_redirects",
-    "Authorization",
     "civitai",
     "_validate_public_url",
 ):
     assert forbidden not in routes, forbidden
+
+upload_source = ast.get_source_segment(
+    routes, route_functions["h3_mobile_lora_upload"]
+)
+for forbidden in ("allow_redirects", "Authorization", "aiohttp", "civitai"):
+    assert forbidden not in upload_source, forbidden
+
+assert "import aiohttp" in routes
+assert "MANAGED_LORA_SPECS" in routes
 
 assert "_safe_filename" in routes
 assert "filename must end with .safetensors" in routes
