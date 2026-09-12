@@ -13,10 +13,13 @@ DEFAULT_FILENAMES = (
     "AIO_v2.5.safetensors",
     "BJ_v3.safetensors",
     "Finger_BEAN_v1.safetensors",
+    "HMCumshot_V2.safetensors",
     "deepthroat_v02.safetensors",
     "Squirt_HM_v1.safetensors",
+    "Squirt_HM_v2.safetensors.safetensors",
     "Nipple_v2.safetensors",
     "Panties_v1.safetensors",
+    "Passionate_Kiss.safetensors",
     "Motion_FL2VA_v2.safetensors",
     "Motion_REF2VA_v2.safetensors",
     "Mystic_FL2VA_v4.safetensors",
@@ -41,12 +44,12 @@ LEGACY_FILENAMES = (
 catalog_section = js.split("const DEFAULT_LORA_CATALOG=", 1)[1].split(
     "const LEGACY_DEFAULT_FILENAMES=", 1
 )[0]
-assert catalog_section.count("filename:") == 12
+assert catalog_section.count("filename:") == 15
 for filename in DEFAULT_FILENAMES:
     assert catalog_section.count(filename) == 1, filename
 for filename in LEGACY_FILENAMES:
     assert filename not in catalog_section, filename
-assert "default-12-v1" in js
+assert "default-15-v2" in js
 assert "migrateDefaultCatalog();" in js
 
 # Registration deletion is local persistent-data deletion. It does not call the
@@ -125,28 +128,28 @@ function names(env){{return env.api.loadLib().map(item=>item.filename);}}
 function check(condition,code){{if(!condition){{console.error('TEST '+code+' failed');process.exit(code);}}}}
 
 (async()=>{{
- // TEST 1: new storage receives the 12 defaults exactly once, all file-only.
+ // TEST 1: new storage receives the 15 defaults exactly once, all file-only.
  let env=makeEnvironment();env.api.seed();
  check(JSON.stringify(names(env))===JSON.stringify(defaults),1);
  check(env.api.loadLib().every(item=>!('url'in item)&&!('sourceType'in item)&&!('installMethod'in item)),1);
 
- // TEST 2: a normal seed/page reload does not append another 12.
- env.api.seed();check(names(env).length===12&&new Set(names(env)).size===12,2);
+ // TEST 2: a normal seed/page reload does not append another 15.
+ env.api.seed();check(names(env).length===15&&new Set(names(env)).size===15,2);
 
- // TEST 3: all 12 selected files upload through the existing upload route (XHR).
+ // TEST 3: all 15 selected files upload through the existing upload route (XHR).
  const files=defaults.map(name=>({{name,size:10,payload:'BINARY_MUST_NOT_ENTER_LOCAL_STORAGE'}}));
  await env.api.bulkUploadFiles(files);
- check(env.uploadCalls.length===12,3);
+ check(env.uploadCalls.length===15,3);
  check(env.uploadCalls.every((call,index)=>call.method==='POST'&&call.url.includes('/h3-mobile/api/loras/upload?filename='+encodeURIComponent(defaults[index]))),3);
  check(!env.values.get('h3MobileLoraLibraryV1').includes('BINARY_MUST_NOT_ENTER_LOCAL_STORAGE'),3);
  // learned hash is stored as metadata, never replayed as an expected hash.
  check(env.api.loadLib().every(item=>item.sha256==='b'.repeat(64)),3);
  check(env.uploadCalls.every(call=>!call.url.includes('&sha256=')&&!call.url.includes('expected_sha256')),3);
 
- // TEST 4: selecting the same 12 again reuses cards, never duplicates.
+ // TEST 4: selecting the same 15 again reuses cards, never duplicates.
  await env.api.bulkUploadFiles(files);
- check(names(env).length===12&&new Set(names(env)).size===12,4);
- check(env.uploadCalls.length===24,4);
+ check(names(env).length===15&&new Set(names(env)).size===15,4);
+ check(env.uploadCalls.length===30,4);
 
  // TEST 5: an unknown .safetensors is auto-registered as a custom lora that is
  // OFF everywhere with strength 1.0; a legacy alias is likewise just a custom
@@ -162,7 +165,7 @@ function check(condition,code){{if(!condition){{console.error('TEST '+code+' fai
  // TEST 6: delete one registration only; no file-delete request occurs.
  const before=env.uploadCalls.length;
  const victim=env.api.loadLib()[0];env.api.removeItem(victim.id);
- check(names(env).length===12&&!names(env).includes(victim.filename),6);
+ check(names(env).length===15&&!names(env).includes(victim.filename),6);
  check(!env.api.quickMarkup('i2v').includes(victim.name),6);
  check(env.uploadCalls.length===before,6);
 
@@ -182,8 +185,8 @@ function check(condition,code){{if(!condition){{console.error('TEST '+code+' fai
  migrated.api.seed();const migratedNames=names(migrated);
  check(defaults.every(name=>migratedNames.filter(value=>value===name).length===1),8);
  check(legacy.every(name=>!migratedNames.includes(name)),8);
- check(migratedNames.includes('Custom.safetensors')&&migratedNames.length===13,8);
- check(migrated.values.get('h3MobileLoraCatalogVersion')==='default-12-v1',8);
+ check(migratedNames.includes('Custom.safetensors')&&migratedNames.length===16,8);
+ check(migrated.values.get('h3MobileLoraCatalogVersion')==='default-15-v2',8);
  // migration also strips URL-era fields from every surviving record.
  check(migrated.api.loadLib().every(item=>!('url'in item)&&!('sourceType'in item)),8);
 }})().catch(error=>{{console.error(error);process.exit(99);}});
