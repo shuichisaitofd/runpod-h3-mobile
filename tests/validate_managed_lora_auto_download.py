@@ -33,9 +33,12 @@ expected = {
 }
 
 assert ast.literal_eval(assignments["MANAGED_LORA_SPECS"]) == expected
-assert ast.literal_eval(assignments["GITHUB_TOKEN_ENV"]) == "H3_LORA_GITHUB_TOKEN"
+assert "GITHUB_TOKEN_ENV" not in assignments
 assert "repos/shuichisaitofd/h3-lora-assets/" in text
 assert "releases/tags/h3-loras-v1" in text
+assert "H3_LORA_GITHUB_TOKEN" not in text
+assert '"Authorization"' not in text
+assert "auth_required" not in text
 
 download_source = ast.get_source_segment(
     text, functions["_download_managed_lora"]
@@ -59,7 +62,8 @@ assert '@routes.post("/h3-mobile/api/loras/managed/prepare")' in text
 assert "lastManagedDownloads" in js
 assert "hasActiveManagedDownload()" in js
 assert "GitHubから自動取得中" in js
-assert "RunPod Secretの設定が必要です" in js
+assert "RunPod Secretの設定が必要です" not in js
+assert "auth_required" not in js
 
 # Managed downloads are fixed server configuration. The browser upload route
 # must remain file-only and accept no URL/Civitai source.
