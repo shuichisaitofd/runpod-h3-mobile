@@ -238,11 +238,9 @@ function managedDownloadSummary(){
  const states=[...lastManagedDownloads.values()];if(!states.length)return'';
  const installed=states.filter(state=>state.status==='installed').length;
  const active=states.filter(state=>['queued','downloading','verifying'].includes(state.status)).length;
- const auth=states.some(state=>state.status==='auth_required');
  const errors=states.filter(state=>state.status==='error').length;
  if(active)return`GitHubから自動取得中 ${installed}/${states.length}件`;
  if(installed===states.length)return`GitHub自動取得 ${installed}/${states.length}件 完了`;
- if(auth)return'GitHub自動取得: RunPod Secretの設定が必要です';
  if(errors)return`GitHub自動取得エラー ${errors}件`;
  return`GitHub自動取得 ${installed}/${states.length}件`;
 }

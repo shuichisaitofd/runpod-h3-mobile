@@ -78,7 +78,7 @@ assert "XMLHttpRequest" in js and "xhr.upload.onprogress" in js
 assert "検証中" in js and "導入失敗" in js and "再試行" in js
 
 # Backend: user-controlled installation remains file-only. The only downloader
-# is the fixed, SHA-pinned private GitHub Release manifest.
+# is the fixed, SHA-pinned public GitHub Release manifest.
 for endpoint in (
     "/h3-mobile/api/loras/files",
     "/h3-mobile/api/loras/upload",
