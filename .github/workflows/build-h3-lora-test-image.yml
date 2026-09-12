@@ -40,6 +40,12 @@ jobs:
       - name: Validate file-only LoRA manager and full-settings backup
         run: python3 tests/validate_lora_file_only.py
 
+      - name: Validate I2V startup model preparation
+        run: python3 tests/validate_i2v_auto_prepare.py
+
+      - name: Validate managed GitHub LoRA auto-download
+        run: python3 tests/validate_managed_lora_auto_download.py
+
       - name: Validate generation presets and history
         run: python3 tests/validate_generation_presets.py
 
