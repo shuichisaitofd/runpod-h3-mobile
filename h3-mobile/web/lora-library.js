@@ -4,7 +4,7 @@
 const LIB_KEY='h3MobileLoraLibraryV1';
 const LEGACY_SEL_KEY='h3MobileLoraSelectionsV1';
 const CATALOG_VERSION_KEY='h3MobileLoraCatalogVersion';
-const CATALOG_VERSION='default-15-v2';
+const CATALOG_VERSION='default-16-v2';
 const PROJECTS_KEY='h3MobileProjects';
 const ACTIVE_PROJECT_KEY='h3MobileActiveProjectId';
 const PRESET_KEY='h3MobileGenerationPresetsV2';
@@ -23,6 +23,7 @@ const DEFAULT_LORA_CATALOG=Object.freeze([
  {id:'default-squirt-hm-v1',name:'Squirt HM v1',filename:'Squirt_HM_v1.safetensors'},
  {id:'default-squirt-hm-v2',name:'Squirt HM v2',filename:'Squirt_HM_v2.safetensors.safetensors'},
  {id:'default-nipple-v2',name:'Nipple v2',filename:'Nipple_v2.safetensors'},
+ {id:'default-orgasm-masturbate-v14',name:'Orgasm Masturbate v1.4',filename:'Orgasm_Masturbate_v1.4.safetensors'},
  {id:'default-panties-v1',name:'Panties v1',filename:'Panties_v1.safetensors'},
  {id:'default-passionate-kiss',name:'Passionate Kiss',filename:'Passionate_Kiss.safetensors'},
  {id:'default-motion-fl2va-v2',name:'Motion FL2VA v2',filename:'Motion_FL2VA_v2.safetensors'},
