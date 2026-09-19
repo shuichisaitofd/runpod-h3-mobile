@@ -35,6 +35,11 @@ MANAGED_LORA_SPECS = {
     "Pussy_HM_v1.safetensors": "373c3cad3bf27047fdd754fe111443d97e70e3108a8829f2ec63c48832466eb3",
     "Squirt_HM_v1.safetensors": "e7f48b0e9a9bc6252c29db963258fe5d70321c4bc336bc5e6041938c68ee5791",
     "Squirt_HM_v2.safetensors.safetensors": "f0e4bfbe5baebe972880d2250a227e2f475aa8c18d6d01ed897288d9741659d2",
+    "Cumshot_HM_v1.safetensors": "634c39cfcbfd9421a2d7b5adc62573fc232384c4c75e003c2e11d3408ad0765c",
+    "Deepthroat_Ultimate_v1.safetensors": "c94e43ba18cb1e7d6dc5b376821bf593a997f60b09b662a2c5fc5b6a4bfb6105",
+    "Finger_Insert_3323149.safetensors": "2f69376ce473d8a9a9ba4e3b306fabfc65c8d9252decff06f413d73741533540",
+    "JerkOff_H3.safetensors": "d9145b17a8eca7fe252cb1c2a51e64745484df819db9bce0f90699263800e8aa",
+    "M3_Unlocked_v2.safetensors": "8138e5ec1c6cc79706f1129311e90dcd04cc0ef708336c494161b09057f34c07",
 }
 
 # User-supplied LoRAs remain file-upload only; there is no user URL/Civitai
