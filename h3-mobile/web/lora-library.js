@@ -4,7 +4,7 @@
 const LIB_KEY='h3MobileLoraLibraryV1';
 const LEGACY_SEL_KEY='h3MobileLoraSelectionsV1';
 const CATALOG_VERSION_KEY='h3MobileLoraCatalogVersion';
-const CATALOG_VERSION='default-16-v2';
+const CATALOG_VERSION='default-21-v1';
 const PROJECTS_KEY='h3MobileProjects';
 const ACTIVE_PROJECT_KEY='h3MobileActiveProjectId';
 const PRESET_KEY='h3MobileGenerationPresetsV2';
@@ -30,7 +30,12 @@ const DEFAULT_LORA_CATALOG=Object.freeze([
  {id:'default-motion-ref2va-v2',name:'Motion REF2VA v2',filename:'Motion_REF2VA_v2.safetensors'},
  {id:'default-mystic-fl2va-v4',name:'Mystic FL2VA v4',filename:'Mystic_FL2VA_v4.safetensors'},
  {id:'default-penis-hm-v2',name:'Penis HM v2',filename:'Penis_HM_v2.safetensors'},
- {id:'default-pussy-hm-v1',name:'Pussy HM v1',filename:'Pussy_HM_v1.safetensors'}
+ {id:'default-pussy-hm-v1',name:'Pussy HM v1',filename:'Pussy_HM_v1.safetensors'},
+ {id:'default-cumshot-hm-v1',name:'Cumshot HM v1',filename:'Cumshot_HM_v1.safetensors'},
+ {id:'default-deepthroat-ultimate-v1',name:'Deepthroat Ultimate v1',filename:'Deepthroat_Ultimate_v1.safetensors'},
+ {id:'default-finger-insert-3323149',name:'Finger Insert',filename:'Finger_Insert_3323149.safetensors'},
+ {id:'default-jerkoff-h3',name:'JerkOff H3',filename:'JerkOff_H3.safetensors'},
+ {id:'default-m3-unlocked-v2',name:'M3 Unlocked v2',filename:'M3_Unlocked_v2.safetensors'}
 ]);
 const LEGACY_DEFAULT_FILENAMES=new Set([
  'HMNSFW-AIO-V2.5.safetensors',
