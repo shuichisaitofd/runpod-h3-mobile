@@ -21,8 +21,8 @@ h1{margin:0;font-size:18px}
 .filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
 .chip{border:0;border-radius:999px;padding:5px 10px;font-size:12px;cursor:pointer;background:#eee;color:#555}
 .chip.on{background:#111827;color:#fff}
-.item{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;gap:8px;align-items:flex-start;margin-bottom:8px;box-shadow:var(--shadow)}
-.dot{width:8px;height:8px;border-radius:50%;margin-top:7px;flex:0 0 auto}
+.item{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;gap:8px;align-items:center;margin-bottom:8px;box-shadow:var(--shadow)}
+.dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
 .meta{flex:1;min-width:0}
 .title{font-size:15px;font-weight:650}
 .sub{font-size:11px;color:var(--muted);margin-top:3px}
@@ -39,6 +39,8 @@ h1{margin:0;font-size:18px}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .genre-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
 .genre-row .name{flex:1;font-weight:650}
+.handle{cursor:grab;color:#c5cad3;width:18px;text-align:center;user-select:none;flex:0 0 auto;letter-spacing:-2px}
+.item.dragging,.genre-row.dragging{opacity:.4}
 .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%) translateY(12px);background:#111;color:#fff;padding:8px 12px;border-radius:999px;font-size:13px;opacity:0;transition:.18s}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 </style>
@@ -52,7 +54,7 @@ h1{margin:0;font-size:18px}
       <button class="btn primary" id="addBtn">追加</button>
     </div>
   </div>
-  <p class="hint">作成画面の「ライブラリへ」で LoRA 数値込み保存できます。「H3で使う」は同じサイトの index に本文と設定を戻します。</p>
+  <p class="hint">カード左の ⋮ をドラッグして順番を変えられます。ジャンル管理でも同じように並べ替えできます。</p>
   <div class="tools">
     <textarea class="search" id="search" rows="2" placeholder="検索"></textarea>
     <button class="btn" id="genreBtn">ジャンル管理</button>
@@ -100,7 +102,7 @@ h1{margin:0;font-size:18px}
       <h2 style="margin:0;font-size:16px">ジャンル管理</h2>
       <button class="btn" id="genreClose">閉じる</button>
     </div>
-    <p class="hint">削除したジャンルの件は「その他」へ移動します。</p>
+    <p class="hint">左の ⋮ をドラッグ、または ↑↓ で順番を変えられます。削除したジャンルの件は「その他」へ移動します。</p>
     <div id="genreList"></div>
   </div>
 </div>
