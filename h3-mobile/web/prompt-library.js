@@ -10,7 +10,7 @@ const PENDING_KEY='h3PendingLibraryPrompt';
 const LIBRARY_PAGE='prompt-library.html';
 let targetKind='normal';
 const q=selector=>document.querySelector(selector);
-const esc=value=>String(value??'').replace(/[&<>'\"]/g,char=>({'&':'&','<':'<','>':'>',"'":'&#39;','\"':'"'}[char]));
+const esc=value=>String(value??'').replace(/[&<>'\']/g,char=>({'&':'&','<':'<','>':'>',"'":'&#39;','\"':'"'}[char]));
 const uid=()=>crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random();
 
 function parseJson(value,fallback){try{return JSON.parse(value||'null')??fallback;}catch{return fallback;}}
@@ -180,12 +180,92 @@ function addControls(textarea,kind){
   wrap.append(saveButton,openButton,libSave,libOpen);
   textarea.insertAdjacentElement('afterend',wrap);
 }
+function loadCatalogRaw(){
+  try{return JSON.parse(localStorage.getItem(CATALOG_KEY)||'null');}catch{return null;}
+}
+function injectFullBackup(){
+  const msg=q('#loraBackupMsg');
+  if(!msg||q('#loraFullExport'))return;
+  const card=document.createElement('div');
+  card.className='card';
+  card.innerHTML='<h2>一括バックアップ（設定 + プロンプト）</h2><div class="small">indexの全設定とプロンプトライブラリを1つのJSONにまとめます。上の「全設定バックアップ」はそのまま使えます。画像・LoRA本体・URL・APIキーは含みません。</div><div class="h3-lora-top-actions"><button class="secondary" id="loraFullExport">一括ダウンロード</button><label class="secondary" style="text-align:center;cursor:pointer;padding:12px">一括復元<input id="loraFullImport" type="file" accept=".json,application/json" style="display:none"></label></div><div id="loraFullBackupMsg" class="small" style="margin-top:8px"></div>';
+  msg.closest('.card')?.insertAdjacentElement('afterend',card);
+  q('#loraFullExport').onclick=exportFullBundle;
+  q('#loraFullImport').onchange=event=>importFullBundle(event.target.files?.[0]);
+}
+function downloadJson(name,data){
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=name;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+function exportFullBundle(){
+  const settings={
+    schema:'h3-mobile-settings',
+    version:3,
+    exportedAt:new Date().toISOString(),
+    activeProjectId:localStorage.getItem('h3MobileActiveProjectId'),
+    projects:parseJson(localStorage.getItem('h3MobileProjects'),[]),
+    loraRegistry:parseJson(localStorage.getItem('h3MobileLoraLibraryV1'),[]),
+    generationPresets:parseJson(localStorage.getItem('h3MobileGenerationPresetsV2'),null)
+  };
+  if(Array.isArray(settings.projects)){
+    settings.projects=settings.projects.map(project=>{
+      const copy={...project,images:{image0:null,ref0:null,ref1:null,ref2:null,ref3:null}};
+      if(copy.batch&&typeof copy.batch==='object')copy.batch={...copy.batch,i2vFiles:[],refSets:[{files:[null,null,null,null]}]};
+      return copy;
+    });
+  }
+  const promptLibrary=loadCatalogRaw();
+  const n=Array.isArray(promptLibrary)?promptLibrary.length:(promptLibrary&&Array.isArray(promptLibrary.items)?promptLibrary.items.length:0);
+  downloadJson('h3-mobile-full-backup.json',{schema:'h3-mobile-full',version:1,exportedAt:settings.exportedAt,settings,promptLibrary});
+  const el=q('#loraFullBackupMsg');
+  if(el)el.textContent=`一括バックアップを保存しました（プロンプト ${n}件 + 全設定）。`;
+}
+async function importFullBundle(file){
+  if(!file)return;
+  const el=q('#loraFullBackupMsg');
+  let raw;
+  try{raw=JSON.parse(await file.text());}catch{if(el)el.textContent='JSONを読み込めませんでした。';return;}
+  let settings=null, catalog=null;
+  if(raw&&raw.schema==='h3-mobile-full'){
+    settings=raw.settings||null;
+    catalog=raw.promptLibrary??null;
+  }else if(raw&&raw.schema==='h3-mobile-settings'){
+    settings=raw;
+  }else if(raw&&(Array.isArray(raw)||Array.isArray(raw.items))){
+    catalog=raw;
+  }else{
+    if(el)el.textContent='対応していないバックアップ形式です。';
+    return;
+  }
+  const parts=[];
+  if(settings)parts.push('案件・生成設定・LoRA登録・プリセット');
+  if(catalog!=null)parts.push('プロンプトライブラリ');
+  if(!confirm(parts.join(' と ')+'をこのファイルで置き換えます。よろしいですか？（画像とLoRA本体は変更されません）'))return;
+  if(settings){
+    if(settings.loraRegistry)localStorage.setItem('h3MobileLoraLibraryV1',JSON.stringify(settings.loraRegistry));
+    if(settings.projects){
+      localStorage.setItem('h3MobileProjects',JSON.stringify(settings.projects));
+      const active=settings.activeProjectId||settings.projects[0]?.id;
+      if(active)localStorage.setItem('h3MobileActiveProjectId',active);
+    }
+    if(settings.generationPresets)localStorage.setItem('h3MobileGenerationPresetsV2',JSON.stringify(settings.generationPresets));
+  }
+  if(catalog!=null)localStorage.setItem(CATALOG_KEY,JSON.stringify(catalog));
+  alert('一括復元しました。ページを再読み込みします。');
+  location.reload();
+}
 function init(){
   css();
   loadStore();
   addControls(q('#prompt'),'normal');
   addControls(q('#batchPrompt'),'batch');
   consumePending();
+  injectFullBackup();
+  setTimeout(injectFullBackup,0);
   window.addEventListener('storage',event=>{
     if(event.key===PENDING_KEY && event.newValue) consumePending();
   });
