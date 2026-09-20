@@ -4,9 +4,107 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Prompt Library</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--line:#e6e8ee;--text:#1f2937;--muted:#8b93a3;--shadow:0 1px 2px rgba(16,24,40,.04)}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif}
+button,input,textarea,select{font-family:inherit}
+.app{max-width:720px;margin:0 auto;padding:20px 14px 72px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+h1{margin:0;font-size:18px}
+.hint{font-size:12px;color:var(--muted);line-height:1.5;margin:0 0 12px}
+.tools{display:flex;gap:8px;align-items:flex-start;margin-bottom:12px;flex-wrap:wrap}
+.search{flex:1;min-width:160px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.btn{border:1px solid var(--line);background:#fff;color:#374151;border-radius:10px;padding:8px 10px;cursor:pointer;text-decoration:none;display:inline-block}
+.btn.primary{background:#111827;border-color:#111827;color:#fff}
+.btn.danger{color:#dc2626;border-color:#fecaca}
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.chip{border:0;border-radius:999px;padding:5px 10px;font-size:12px;cursor:pointer;background:#eee;color:#555}
+.chip.on{background:#111827;color:#fff}
+.item{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;gap:8px;align-items:flex-start;margin-bottom:8px;box-shadow:var(--shadow)}
+.dot{width:8px;height:8px;border-radius:50%;margin-top:7px;flex:0 0 auto}
+.meta{flex:1;min-width:0}
+.title{font-size:15px;font-weight:650}
+.sub{font-size:11px;color:var(--muted);margin-top:3px}
+.actions{display:flex;gap:4px;flex-wrap:wrap}
+.badge{font-size:10px;padding:2px 6px;border-radius:999px;background:#ecfdf5;color:#047857}
+.badge.off{background:#f3f4f6;color:#6b7280}
+.modal-bg{position:fixed;inset:0;background:rgba(17,24,39,.35);display:none;align-items:center;justify-content:center;padding:16px;z-index:20}
+.modal-bg.open{display:flex}
+.modal{width:min(560px,100%);background:#fff;border-radius:14px;padding:16px;max-height:90vh;overflow:auto}
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+.field label{font-size:12px;color:var(--muted)}
+.field input,.field textarea,.field select{width:100%;border:1px solid var(--line);border-radius:10px;padding:9px}
+.field textarea{min-height:140px;resize:vertical}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.genre-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.genre-row .name{flex:1;font-weight:650}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%) translateY(12px);background:#111;color:#fff;padding:8px 12px;border-radius:999px;font-size:13px;opacity:0;transition:.18s}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
 </head>
 <body>
-<p>loading full file via follow-up if needed. Use prompt-library.js hooks.</p>
-<script>location.replace('index.html')</script>
+<div class="app">
+  <div class="top">
+    <h1>Prompt Library</h1>
+    <div class="row">
+      <a class="btn" href="index.html">作成へ</a>
+      <button class="btn primary" id="addBtn">追加</button>
+    </div>
+  </div>
+  <p class="hint">作成画面の「ライブラリへ」で LoRA 数値込み保存できます。「H3で使う」は同じサイトの index に本文と設定を戻します。</p>
+  <div class="tools">
+    <textarea class="search" id="search" rows="2" placeholder="検索"></textarea>
+    <button class="btn" id="genreBtn">ジャンル管理</button>
+    <button class="btn" id="exportBtn">書き出し</button>
+    <button class="btn" id="importBtn">読込</button>
+    <input type="file" id="fileInput" accept="application/json" hidden>
+  </div>
+  <div class="filters" id="filters"></div>
+  <div id="list"></div>
+</div>
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px">
+      <h2 style="margin:0;font-size:16px" id="modalTitle">編集</h2>
+      <div class="row">
+        <button class="btn danger" id="deleteBtn">削除</button>
+        <button class="btn" id="cancelBtn">キャンセル</button>
+        <button class="btn primary" id="saveBtn">保存</button>
+      </div>
+    </div>
+    <div class="field"><label>タイトル</label><input id="editTitle"></div>
+    <div class="field">
+      <label>ジャンル</label>
+      <select id="editGenre"></select>
+      <div class="row" style="margin-top:8px">
+        <input id="newGenre" placeholder="新しいジャンル" style="flex:1;border:1px solid var(--line);border-radius:10px;padding:8px">
+        <button class="btn" id="addGenreBtn">追加</button>
+        <button class="btn danger" id="deleteGenreBtn">このジャンルを削除</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>マーク</label>
+      <div class="row">
+        <label><input type="checkbox" id="tagBo"> 冒頭</label>
+        <label><input type="checkbox" id="tagTan"> 単体</label>
+        <label><input type="checkbox" id="tagSan"> 参照</label>
+      </div>
+    </div>
+    <div class="field"><label>本文</label><textarea id="editBody"></textarea></div>
+  </div>
+</div>
+<div class="modal-bg" id="genreBg">
+  <div class="modal">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px">
+      <h2 style="margin:0;font-size:16px">ジャンル管理</h2>
+      <button class="btn" id="genreClose">閉じる</button>
+    </div>
+    <p class="hint">削除したジャンルの件は「その他」へ移動します。</p>
+    <div id="genreList"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="prompt-library-page.js"></script>
 </body>
 </html>
