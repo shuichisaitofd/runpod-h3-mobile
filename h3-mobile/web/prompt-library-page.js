@@ -5,6 +5,7 @@ const GENRE_COLORS={"正常位":"#3b82f6","騎乗位":"#f43f5e","立位":"#f59e0
 const EXTRA=["#0ea5e9","#84cc16","#a855f7","#ef4444","#06b6d4"];
 const $=id=>document.getElementById(id);
 let items=[], genres=[...DEFAULT_GENRES], activeGenre="すべて", editIndex=null;
+let dragItemFrom=null, dragGenreFrom=null;
 
 function toast(msg){const el=$("toast");el.textContent=msg;el.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove("show"),1600);}
 function unique(list){const out=[];for(const g of list){const n=String(g||"").trim();if(n&&!out.includes(n))out.push(n);}return out;}
@@ -20,7 +21,7 @@ function load(){
       if(Array.isArray(parsed.genres)) genres=unique(parsed.genres.concat(DEFAULT_GENRES));
     }
   }catch(e){}
-  genres=unique(genres.concat(items.map(x=>x.genre),DEFAULT_GENRES));
+  genres=unique(genres.concat(items.map(x=>x.genre), DEFAULT_GENRES));
 }
 function save(){localStorage.setItem(STORAGE_KEY,JSON.stringify({items,genres}));}
 function loraSummary(gen){
@@ -36,20 +37,36 @@ function filtered(){
     return (it.title+" "+it.body).toLowerCase().includes(q);
   });
 }
+function moveItem(i, dir){
+  const j=i+dir;
+  if(j<0||j>=items.length) return;
+  [items[i], items[j]]=[items[j], items[i]];
+  save(); render();
+}
+function moveGenre(name, dir){
+  const i=genres.indexOf(name);
+  if(i<0) return;
+  const j=i+dir;
+  if(j<0||j>=genres.length) return;
+  [genres[i], genres[j]]=[genres[j], genres[i]];
+  save(); renderGenreManager(); render();
+}
 function renderFilters(){
-  const used=["すべて",...genres.filter(g=>items.some(it=>it.genre===g)||DEFAULT_GENRES.includes(g))];
-  $("filters").innerHTML=used.map(g=>{
+  const used=["すべて", ...genres.filter(g=>items.some(it=>it.genre===g)||DEFAULT_GENRES.includes(g)||genres.includes(g))];
+  const seen=unique(used);
+  $("filters").innerHTML=seen.map(g=>{
     const on=activeGenre===g?"on":"";
     const color=g==="すべて"?"":genreColor(g);
     const style=g==="すべて"?"":(on?`background:${color};color:#fff`:`background:${color}22;color:${color}`);
-    return `<button class="chip ${on}" data-genre="${g}" style="${style}">${g}</button>`;
+    return `<button class="chip ${on}" data-genre="${escapeHtml(g)}" style="${style}">${escapeHtml(g)}</button>`;
   }).join("");
 }
 function render(){
   renderFilters();
   const rows=filtered();
   $("list").innerHTML=rows.length?rows.map(({it,i})=>`
-    <article class="item">
+    <article class="item" draggable="true" data-index="${i}">
+      <div class="handle" title="ドラッグで並び替え">⋮⋮</div>
       <span class="dot" style="background:${genreColor(it.genre)}"></span>
       <div class="meta">
         <div class="title">${escapeHtml(it.title)}</div>
@@ -59,6 +76,8 @@ function render(){
         <button class="btn primary" data-h3="${i}">H3で使う</button>
         <button class="btn" data-copy="${i}">コピー</button>
         <button class="btn" data-edit="${i}">編集</button>
+        <button class="btn" data-up="${i}">↑</button>
+        <button class="btn" data-down="${i}">↓</button>
       </div>
     </article>`).join(""):'<p class="hint">なし。作成画面の「ライブラリへ」か、JSON読込で追加できます。</p>';
 }
@@ -97,7 +116,15 @@ function deleteGenre(name){
 function renderGenreManager(){
   $("genreList").innerHTML=unique(genres.concat(items.map(x=>x.genre))).map(g=>{
     const n=items.filter(it=>it.genre===g).length;
-    return `<div class="genre-row"><span class="dot" style="background:${genreColor(g)}"></span><div class="name">${escapeHtml(g)}</div><div class="hint" style="margin:0">${n}件</div>${g==="その他"?"":`<button class="btn danger" data-del-genre="${escapeHtml(g)}">削除</button>`}</div>`;
+    return `<div class="genre-row" draggable="true" data-genre-name="${escapeHtml(g)}">
+      <div class="handle" title="ドラッグで並び替え">⋮⋮</div>
+      <span class="dot" style="background:${genreColor(g)}"></span>
+      <div class="name">${escapeHtml(g)}</div>
+      <div class="hint" style="margin:0">${n}件</div>
+      <button class="btn" data-genre-up="${escapeHtml(g)}">↑</button>
+      <button class="btn" data-genre-down="${escapeHtml(g)}">↓</button>
+      ${g==="その他"?"":`<button class="btn danger" data-del-genre="${escapeHtml(g)}">削除</button>`}
+    </div>`;
   }).join("");
 }
 
@@ -107,10 +134,37 @@ $("list").onclick=async e=>{
   const h3=e.target.closest("[data-h3]");
   const copy=e.target.closest("[data-copy]");
   const edit=e.target.closest("[data-edit]");
+  const up=e.target.closest("[data-up]");
+  const down=e.target.closest("[data-down]");
   if(h3) sendToH3(items[Number(h3.dataset.h3)]);
   if(copy){try{await navigator.clipboard.writeText(items[Number(copy.dataset.copy)].body);}catch(err){} toast("コピーしました");}
   if(edit) openEdit(Number(edit.dataset.edit));
+  if(up) moveItem(Number(up.dataset.up), -1);
+  if(down) moveItem(Number(down.dataset.down), 1);
 };
+$("list").addEventListener("dragstart", e=>{
+  const card=e.target.closest(".item");
+  if(!card) return;
+  dragItemFrom=Number(card.dataset.index);
+  card.classList.add("dragging");
+});
+$("list").addEventListener("dragend", e=>{
+  const card=e.target.closest(".item");
+  if(card) card.classList.remove("dragging");
+  dragItemFrom=null;
+});
+$("list").addEventListener("dragover", e=>{
+  e.preventDefault();
+  const card=e.target.closest(".item");
+  if(!card || dragItemFrom==null) return;
+  const to=Number(card.dataset.index);
+  if(to===dragItemFrom) return;
+  const moved=items.splice(dragItemFrom,1)[0];
+  items.splice(to,0,moved);
+  dragItemFrom=to;
+  save();
+  render();
+});
 $("addBtn").onclick=()=>openEdit(-1);
 $("cancelBtn").onclick=()=>$("modalBg").classList.remove("open");
 $("saveBtn").onclick=()=>{
@@ -134,12 +188,46 @@ $("addGenreBtn").onclick=()=>{
   const name=$("newGenre").value.trim();
   if(!name) return;
   if(!genres.includes(name)) genres.push(name);
-  fillGenres(name); $("newGenre").value=""; save();
+  fillGenres(name); $("newGenre").value=""; save(); render();
 };
 $("deleteGenreBtn").onclick=()=>deleteGenre($("editGenre").value);
 $("genreBtn").onclick=()=>{renderGenreManager();$("genreBg").classList.add("open");};
 $("genreClose").onclick=()=>$("genreBg").classList.remove("open");
-$("genreList").onclick=e=>{const b=e.target.closest("[data-del-genre]");if(b) deleteGenre(b.dataset.delGenre);};
+$("genreList").onclick=e=>{
+  const del=e.target.closest("[data-del-genre]");
+  const up=e.target.closest("[data-genre-up]");
+  const down=e.target.closest("[data-genre-down]");
+  if(del) deleteGenre(del.dataset.delGenre);
+  if(up) moveGenre(up.dataset.genreUp, -1);
+  if(down) moveGenre(down.dataset.genreDown, 1);
+};
+$("genreList").addEventListener("dragstart", e=>{
+  const row=e.target.closest(".genre-row");
+  if(!row) return;
+  dragGenreFrom=row.dataset.genreName;
+  row.classList.add("dragging");
+});
+$("genreList").addEventListener("dragend", e=>{
+  const row=e.target.closest(".genre-row");
+  if(row) row.classList.remove("dragging");
+  dragGenreFrom=null;
+});
+$("genreList").addEventListener("dragover", e=>{
+  e.preventDefault();
+  const row=e.target.closest(".genre-row");
+  if(!row || !dragGenreFrom) return;
+  const toName=row.dataset.genreName;
+  if(toName===dragGenreFrom) return;
+  const from=genres.indexOf(dragGenreFrom);
+  const to=genres.indexOf(toName);
+  if(from<0||to<0) return;
+  const moved=genres.splice(from,1)[0];
+  genres.splice(to,0,moved);
+  dragGenreFrom=toName;
+  save();
+  renderGenreManager();
+  render();
+});
 $("exportBtn").onclick=()=>{
   const a=document.createElement("a");
   a.href=URL.createObjectURL(new Blob([JSON.stringify({items,genres},null,2)],{type:"application/json"}));
