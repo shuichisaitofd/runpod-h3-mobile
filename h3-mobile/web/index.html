@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
 <title>H3 Mobile</title>
-<link rel="stylesheet" href="styles.css?v=20260925f">
+<link rel="stylesheet" href="styles.css?v=20260925g">
 </head>
 <body>
 <div class="app">
@@ -65,6 +65,7 @@
 <script src="app.js"></script>
 <script src="project-ui.js?v=20260925d"></script>
 <script src="pod-add-fix.js?v=1"></script>
+<script src="connect-fix.js?v=1"></script>
 <script src="copy-prompts.js"></script>
 <script>
 (()=>{const originalFetch=window.fetch.bind(window);window.fetch=async(input,init)=>{const r=await originalFetch(input,init);try{const url=typeof input==='string'?input:(input&&input.url)||'';if(!/\/history\//.test(url)||!r.ok)return r;const clone=r.clone();const data=await clone.json();let changed=false;for(const item of Object.values(data||{})){if(!item||item.status?.completed===true)continue;const outputs=item.outputs||{};const hasOutput=Object.values(outputs).some(node=>['videos','images','gifs','files','audio'].some(k=>Array.isArray(node?.[k])&&node[k].length));if(hasOutput){item.status=item.status||{};item.status.completed=true;changed=true;}}if(!changed)return r;return new Response(JSON.stringify(data),{status:r.status,statusText:r.statusText,headers:r.headers});}catch{return r;}};})();
