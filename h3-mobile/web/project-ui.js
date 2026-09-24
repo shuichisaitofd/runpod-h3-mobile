@@ -1,6 +1,14 @@
 function visibleProjects(){
   return getProjects().map(p=>({...p,archived:!!p.archived})).filter(p=>!p.archived);
 }
+function isProjectPage(){
+  return !!document.querySelector('.page[data-page="projects"].active');
+}
+function syncManageButton(){
+  const btn=document.getElementById('openProjects');
+  if(!btn)return;
+  btn.textContent=isProjectPage()?'閉じる':'管理';
+}
 function renderProjectSettings(){
   const activeRoot=$('#projectActiveList'), archiveRoot=$('#projectArchiveList');
   if(!activeRoot||!archiveRoot)return;
@@ -25,6 +33,7 @@ function renderProjectTabs(){
     select.onchange=()=>switchProject(select.value);
   }
   renderProjectSettings();
+  syncManageButton();
 }
 async function archiveProject(id){
   const projects=getProjects();
@@ -51,14 +60,17 @@ function renameProject(id){
   p.name=name.trim();saveProjects(projects);renderProjectTabs();
 }
 function openProjectSettings(){
-  if(typeof page==='function') page('projects');
+  if(isProjectPage()) page('create');
+  else page('projects');
   renderProjectSettings();
+  syncManageButton();
   window.scrollTo(0,0);
 }
 const origPage=page;
 page=function(name){
   origPage(name);
   if(name==='projects') renderProjectSettings();
+  syncManageButton();
 };
 $('#addProject')&&($('#addProject').onclick=async()=>{
   const n=prompt('案件名','案件');if(!n)return;
@@ -77,7 +89,7 @@ if(projectPage&&!projectPage.dataset.bound){
     const archive=e.target.closest('[data-proj-archive]');
     const restore=e.target.closest('[data-proj-restore]');
     const del=e.target.closest('[data-proj-delete]');
-    if(use)switchProject(use.dataset.projUse);
+    if(use){switchProject(use.dataset.projUse);page('create');}
     if(rename)renameProject(rename.dataset.projRename);
     if(archive)archiveProject(archive.dataset.projArchive);
     if(restore)restoreProject(restore.dataset.projRestore);
@@ -93,12 +105,13 @@ if(projectPage&&!projectPage.dataset.bound){
   }
   const btn=document.getElementById('openProjects');
   if(btn){
+    btn.setAttribute('onclick','openProjectSettings()');
     btn.onclick=openProjectSettings;
-    btn.addEventListener('touchend',function(e){e.preventDefault();openProjectSettings();},{passive:false});
   }
   document.querySelectorAll('.nav[data-target="projects"]').forEach(b=>b.remove());
   const nav=document.querySelector('.bottomin');
   if(nav) nav.style.gridTemplateColumns='repeat(6,1fr)';
+  syncManageButton();
 })();
 window.openProjectSettings=openProjectSettings;
 window.renderProjectTabs=renderProjectTabs;
