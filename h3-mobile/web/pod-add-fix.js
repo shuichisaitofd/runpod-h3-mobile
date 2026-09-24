@@ -28,20 +28,41 @@ function addPodFromForm(){
   if(typeof reconnectPod==='function') reconnectPod();
 }
 window.h3AddPod=addPodFromForm;
-function bind(){
-  const btn=document.getElementById('addPod');
-  if(!btn||btn.dataset.fixed==='1')return;
-  btn.dataset.fixed='1';
-  btn.type='button';
-  btn.setAttribute('onclick','h3AddPod()');
+function rebuild(){
+  const name=document.getElementById('newPodName');
+  const url=document.getElementById('newPodUrl');
+  const oldBtn=document.getElementById('addPod');
+  if(!name||!url||!oldBtn)return;
+  if(document.getElementById('podAddForm')){
+    document.getElementById('podAddForm').onsubmit=e=>{e.preventDefault();addPodFromForm();};
+    return;
+  }
+  const card=oldBtn.closest('.card')||name.closest('.card');
+  const form=document.createElement('form');
+  form.id='podAddForm';
+  form.addEventListener('submit',e=>{e.preventDefault();addPodFromForm();});
+  const grid=name.closest('.grid2');
+  const actions=oldBtn.closest('.actions');
+  const msg=document.getElementById('podMessage');
+  if(grid) form.appendChild(grid);
+  const btn=document.createElement('button');
+  btn.id='addPod';
+  btn.type='submit';
+  btn.className='primary';
+  btn.textContent='追加';
   btn.style.width='100%';
-  btn.style.minHeight='44px';
+  btn.style.marginTop='10px';
+  btn.style.minHeight='48px';
   btn.style.position='relative';
-  btn.style.zIndex='4';
+  btn.style.zIndex='8';
+  form.appendChild(btn);
+  if(actions&&actions.parentNode) actions.remove();
+  if(msg) form.appendChild(msg);
+  if(card) card.appendChild(form);
+  else name.parentNode.appendChild(form);
 }
-bind();
+rebuild();
 document.addEventListener('click',e=>{
-  if(!e.target.closest('#addPod'))return;
-  addPodFromForm();
+  if(e.target.closest('#addPod')) addPodFromForm();
 },true);
 })();
