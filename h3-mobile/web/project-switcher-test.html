@@ -7,118 +7,166 @@
 <style>
 :root{--bg:#0b0f15;--card:#171a21;--line:#2b3240;--text:#e8edf5;--muted:#98a2b3;--acc:#7aa2ff}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif}
-.app{max-width:430px;margin:0 auto;padding:14px 12px 40px}
-h1{font-size:16px;margin:0 0 8px}
-.hint{font-size:12px;color:var(--muted);line-height:1.5;margin:0 0 12px}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif}
+.app{max-width:430px;margin:0 auto;padding:12px 12px 88px}
+h1{font-size:16px;margin:0}
+.hint{font-size:12px;color:var(--muted);line-height:1.5;margin:8px 0 12px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
 .row{display:flex;gap:8px;align-items:center}
-.current{flex:1;min-width:0}
-.name{font-size:18px;font-weight:750;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.meta{font-size:11px;color:var(--muted);margin-top:3px}
-button,input{font-family:inherit}
+button,input,select{font-family:inherit}
 .btn{border:1px solid var(--line);background:#151922;color:var(--text);border-radius:10px;padding:8px 10px;cursor:pointer}
 .btn.primary{background:#1b365d;border-color:#7aa2ff}
 .btn.danger{color:#ffc0c0;border-color:#683333}
+.header{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+.header select{flex:1;min-width:0;background:#11151c;border:1px solid var(--line);border-radius:12px;color:var(--text);padding:10px 12px;font-size:16px;font-weight:750}
+.page{display:none}
+.page.on{display:block}
+.item{display:flex;gap:8px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:11px;padding:9px 10px;background:#11151c;margin-bottom:6px}
+.item .t{flex:1;min-width:0;font-weight:700}
+.item.on{border-color:#7aa2ff}
 .search{width:100%;background:#11151c;border:1px solid var(--line);border-radius:10px;padding:9px 10px;color:var(--text);margin:8px 0}
-.list{display:grid;gap:6px;max-height:52vh;overflow:auto}
-.item{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:11px;padding:9px 10px;background:#11151c}
-.item.on{border-color:#7aa2ff;background:#1b365d}
-.item button.pick{flex:1;text-align:left;background:none;border:0;color:inherit;padding:0;cursor:pointer}
-.item .t{font-weight:700}
-.item .s{font-size:11px;color:var(--muted);margin-top:2px}
-.empty{font-size:12px;color:var(--muted);padding:8px}
-.fake{font-size:12px;color:var(--muted)}
+.empty{font-size:12px;color:var(--muted);padding:8px 0}
+.bottom{position:fixed;left:0;right:0;bottom:0;background:#0f141c;border-top:1px solid var(--line)}
+.bottomin{max-width:430px;margin:0 auto;display:flex}
+.nav{flex:1;background:none;border:0;color:var(--muted);padding:14px 8px;font-size:13px}
+.nav.on{color:#fff;font-weight:750}
+.meta{font-size:11px;color:var(--muted)}
 </style>
 </head>
 <body>
 <div class="app">
-  <h1>案件切り替えテスト</h1>
-  <p class="hint">本番の作成画面は触っていません。このページだけで確認できます。今の案件だけ大きく出し、一覧は検索して選びます。</p>
-  <div class="card">
-    <div class="row">
-      <div class="current">
-        <div class="name" id="currentName">—</div>
-        <div class="meta" id="currentMeta"></div>
-      </div>
-      <button class="btn" id="renameBtn">改名</button>
-      <button class="btn" id="addBtn">追加</button>
-      <button class="btn danger" id="delBtn">削除</button>
+  <div class="header">
+    <select id="projectSelect" aria-label="案件切替"></select>
+  </div>
+  <p class="hint">ヘッダーは常に今の案件1件。プルダウンはアーカイブ以外を全表示。管理は「案件設定」だけ。</p>
+  <section class="page on" id="page-create">
+    <div class="card">
+      <h1>作成（ダミー）</h1>
+      <div id="dummy" style="margin-top:8px;font-size:13px;line-height:1.6"></div>
     </div>
-  </div>
-  <div class="card">
-    <div class="row"><b style="flex:1">案件一覧</b><span class="meta" id="count"></span></div>
-    <input class="search" id="search" placeholder="名前で検索">
-    <div class="list" id="list"></div>
-  </div>
-  <div class="card">
-    <div class="fake">この枠はダミーです。実際のプロンプト欄の代わり。</div>
-    <div id="dummy" style="margin-top:8px;font-size:13px;line-height:1.6"></div>
-  </div>
+  </section>
+  <section class="page" id="page-projects">
+    <div class="card">
+      <div class="row">
+        <h1 style="flex:1">案件設定</h1>
+        <button class="btn primary" id="addBtn">追加</button>
+      </div>
+      <p class="hint" style="margin-bottom:0">表示中の案件だけプルダウンに出ます。使わないものはアーカイブへ。</p>
+    </div>
+    <div class="card">
+      <div class="row"><b style="flex:1">表示中</b><span class="meta" id="activeCount"></span></div>
+      <input class="search" id="activeSearch" placeholder="表示中を検索">
+      <div id="activeList"></div>
+    </div>
+    <div class="card">
+      <div class="row"><b style="flex:1">アーカイブ</b><span class="meta" id="archiveCount"></span></div>
+      <input class="search" id="archiveSearch" placeholder="アーカイブを検索">
+      <div id="archiveList"></div>
+    </div>
+  </section>
 </div>
+<nav class="bottom"><div class="bottomin">
+  <button class="nav on" data-page="create">作成</button>
+  <button class="nav" data-page="projects">案件設定</button>
+</div></nav>
 <script>
-const KEY="h3-project-switcher-test";
-const seed=["騎乗位 A","正常位 室内","フェラ POV","手マン ズボン","立位 壁","参照04 安定","I2V 10秒","胸部寄り","ディルド固定","テスト用 長い案件名をここに入れる"];
+const KEY="h3-project-switcher-test-v2";
+const seed=["騎乗位 A","正常位 室内","フェラ POV","手マン ズボン","立位 壁","参照04 安定","I2V 10秒"];
+const $=id=>document.getElementById(id);
 function uid(){return String(Date.now())+Math.random().toString(16).slice(2);}
 function load(){
   try{
     const raw=JSON.parse(localStorage.getItem(KEY)||"null");
     if(raw&&Array.isArray(raw.items)&&raw.items.length) return raw;
   }catch(e){}
-  const items=seed.map((name,i)=>({id:uid()+i,name,note:"ダミー"}));
+  const items=seed.map((name,i)=>({id:"p"+i,name,archived:false}));
   return {items, active:items[0].id};
 }
 function save(){localStorage.setItem(KEY,JSON.stringify(state));}
 let state=load();
-const $=id=>document.getElementById(id);
-function active(){return state.items.find(p=>p.id===state.active)||state.items[0];}
-function render(){
-  const cur=active();
-  if(cur) state.active=cur.id;
-  $("currentName").textContent=cur?cur.name:"なし";
-  $("currentMeta").textContent=cur?state.items.length+"件中の現在案件":"";
-  $("count").textContent=state.items.length+"件";
-  const q=($("search").value||"").trim().toLowerCase();
-  const rows=state.items.filter(p=>!q||p.name.toLowerCase().includes(q));
-  $("list").innerHTML=rows.length?rows.map(p=>`
-    <div class="item ${p.id===state.active?"on":""}">
-      <button class="pick" data-id="${p.id}">
-        <div class="t">${p.name}</div>
-        <div class="s">${p.id===state.active?"選択中":"切替"}</div>
-      </button>
-    </div>`).join(""):'<div class="empty">一致する案件がありません</div>';
-  $("dummy").textContent=cur?`「${cur.name}」の入力内容がここに入ります。案件を切り替えると、この中身だけ変わります。`:"案件がありません";
+function visible(){return state.items.filter(p=>!p.archived);}
+function archived(){return state.items.filter(p=>p.archived);}
+function current(){return visible().find(p=>p.id===state.active)||visible()[0]||null;}
+function setActive(id){
+  const p=state.items.find(x=>x.id===id&&!x.archived);
+  if(!p) return;
+  state.active=p.id; save(); render();
 }
-$("list").onclick=e=>{
-  const b=e.target.closest("[data-id]");
-  if(!b) return;
-  state.active=b.dataset.id;
-  save(); render();
-};
-$("search").oninput=render;
+function renderSelect(){
+  const cur=current();
+  if(cur) state.active=cur.id;
+  $("projectSelect").innerHTML=visible().map(p=>`<option value="${p.id}" ${p.id===state.active?"selected":""}>${p.name}</option>`).join("");
+  $("dummy").textContent=cur?("今の案件は「"+cur.name+"」。プルダウンで切り替えます。アーカイブした案件はここに出ません。"):"表示中の案件がありません。案件設定で戻すか追加してください。";
+}
+function row(p, kind){
+  const on=p.id===state.active?"on":"";
+  if(kind==="active"){
+    return `<div class="item ${on}"><div class="t">${p.name}${p.id===state.active?"（使用中）":""}</div>
+      <button class="btn" data-use="${p.id}">使う</button>
+      <button class="btn" data-rename="${p.id}">改名</button>
+      <button class="btn" data-archive="${p.id}">アーカイブ</button></div>`;
+  }
+  return `<div class="item"><div class="t">${p.name}</div>
+    <button class="btn" data-restore="${p.id}">表示に戻す</button>
+    <button class="btn danger" data-delete="${p.id}">削除</button></div>`;
+}
+function renderLists(){
+  const aq=($("activeSearch").value||"").trim().toLowerCase();
+  const rq=($("archiveSearch").value||"").trim().toLowerCase();
+  const vis=visible().filter(p=>!aq||p.name.toLowerCase().includes(aq));
+  const arc=archived().filter(p=>!rq||p.name.toLowerCase().includes(rq));
+  $("activeCount").textContent=visible().length+"件";
+  $("archiveCount").textContent=archived().length+"件";
+  $("activeList").innerHTML=vis.length?vis.map(p=>row(p,"active")).join(""):'<div class="empty">表示中の案件はありません</div>';
+  $("archiveList").innerHTML=arc.length?arc.map(p=>row(p,"archive")).join(""):'<div class="empty">アーカイブはありません</div>';
+}
+function render(){renderSelect();renderLists();}
+$("projectSelect").onchange=e=>setActive(e.target.value);
+$("activeSearch").oninput=renderLists;
+$("archiveSearch").oninput=renderLists;
 $("addBtn").onclick=()=>{
   const name=prompt("案件名","案件 "+(state.items.length+1));
   if(!name) return;
-  const rec={id:uid(),name:name.trim(),note:"新規"};
-  state.items.push(rec);
-  state.active=rec.id;
-  save(); render();
+  const rec={id:uid(),name:name.trim(),archived:false};
+  state.items.push(rec); state.active=rec.id; save(); render();
 };
-$("renameBtn").onclick=()=>{
-  const cur=active(); if(!cur) return;
-  const name=prompt("新しい名前",cur.name);
-  if(!name) return;
-  cur.name=name.trim();
-  save(); render();
+document.getElementById("page-projects").onclick=e=>{
+  const use=e.target.closest("[data-use]");
+  const rename=e.target.closest("[data-rename]");
+  const archive=e.target.closest("[data-archive]");
+  const restore=e.target.closest("[data-restore]");
+  const del=e.target.closest("[data-delete]");
+  if(use) setActive(use.dataset.use);
+  if(rename){
+    const p=state.items.find(x=>x.id===rename.dataset.rename);
+    const name=prompt("新しい名前",p.name);
+    if(!name) return;
+    p.name=name.trim(); save(); render();
+  }
+  if(archive){
+    if(visible().length<=1){alert("表示中は最低1件必要です");return;}
+    const p=state.items.find(x=>x.id===archive.dataset.archive);
+    if(!confirm("「"+p.name+"」をアーカイブしますか？プルダウンから消えます。")) return;
+    p.archived=true;
+    if(state.active===p.id) state.active=visible()[0].id;
+    save(); render();
+  }
+  if(restore){
+    const p=state.items.find(x=>x.id===restore.dataset.restore);
+    p.archived=false; state.active=p.id; save(); render();
+  }
+  if(del){
+    const p=state.items.find(x=>x.id===del.dataset.delete);
+    if(!confirm("「"+p.name+"」を完全削除しますか？")) return;
+    state.items=state.items.filter(x=>x.id!==p.id); save(); render();
+  }
 };
-$("delBtn").onclick=()=>{
-  if(state.items.length<=1){alert("最後の1件は削除できません");return;}
-  const cur=active();
-  if(!confirm("「"+cur.name+"」を削除しますか？")) return;
-  state.items=state.items.filter(p=>p.id!==cur.id);
-  state.active=state.items[0].id;
-  save(); render();
-};
+document.querySelectorAll(".nav").forEach(btn=>{
+  btn.onclick=()=>{
+    document.querySelectorAll(".nav").forEach(b=>b.classList.toggle("on",b===btn));
+    document.querySelectorAll(".page").forEach(p=>p.classList.toggle("on",p.id==="page-"+btn.dataset.page));
+  };
+});
 render();
 </script>
 </body>
