@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
 <title>H3 Mobile</title>
-<link rel="stylesheet" href="styles.css?v=20260925d">
+<link rel="stylesheet" href="styles.css?v=20260925f">
 </head>
 <body>
 <div class="app">
@@ -55,7 +55,7 @@
 </section>
 <section class="page" data-page="settings">
 <div class="card"><h2>モデル管理</h2><div class="small">必要なモデルだけRunPodへ直接ダウンロードします。</div><div class="model-actions"><button class="primary" id="prepareRef">Ref2VAを準備</button><button class="primary" id="prepareI2V">I2Vを準備</button></div><div id="modelMessage" class="notice hidden"></div><div id="modelList" class="model-list"><div class="small">モデル状態を確認中...</div></div></div>
-<div class="card"><h2>接続先Pod</h2><div class="small">RunPod PodのComfyUI Base URLを登録して切り替えられます。未登録のときはこのページの配信元へ直接接続します（APIキー等の認証情報は保存しません）。</div><div id="podList" class="model-list" style="margin-top:10px"></div><div class="grid2" style="margin-top:10px"><div><label>Pod名</label><input id="newPodName" placeholder="例: Pod A"></div><div><label>Base URL</label><input id="newPodUrl" placeholder="https://xxxx-8188.proxy.runpod.net"></div></div><div class="actions" style="margin-top:10px"><button class="secondary" id="addPod">追加</button></div><div id="podMessage" class="small" style="margin-top:8px"></div></div>
+<div class="card"><h2>接続先Pod</h2><div class="small">RunPod PodのComfyUI Base URLを登録して切り替えられます。未登録のときはこのページの配信元へ直接接続します（APIキー等の認証情報は保存しません）。</div><div id="podList" class="model-list" style="margin-top:10px"></div><div class="grid2" style="margin-top:10px"><div><label>Pod名</label><input id="newPodName" placeholder="例: Pod A"></div><div><label>Base URL</label><input id="newPodUrl" placeholder="https://xxxx-8188.proxy.runpod.net"></div></div><div class="actions" style="margin-top:10px"><button class="secondary" id="addPod" type="button" onclick="h3AddPod()">追加</button></div><div id="podMessage" class="small" style="margin-top:8px"></div></div>
 <div class="card"><h2>接続</h2><div class="small">このページはComfyUIと同じ8188上で動作するため、ComfyUI URLの入力は不要です。</div><label>API workflow</label><div id="workflowStatus" class="notice">確認中</div></div>
 </section>
 </main>
@@ -64,6 +64,7 @@
 <div class="media-modal hidden" id="mediaModal" role="dialog" aria-modal="true"><button class="modal-close" id="modalClose" aria-label="閉じる">×</button><div class="modal-body" id="modalBody"></div></div>
 <script src="app.js"></script>
 <script src="project-ui.js?v=20260925d"></script>
+<script src="pod-add-fix.js?v=1"></script>
 <script src="copy-prompts.js"></script>
 <script>
 (()=>{const originalFetch=window.fetch.bind(window);window.fetch=async(input,init)=>{const r=await originalFetch(input,init);try{const url=typeof input==='string'?input:(input&&input.url)||'';if(!/\/history\//.test(url)||!r.ok)return r;const clone=r.clone();const data=await clone.json();let changed=false;for(const item of Object.values(data||{})){if(!item||item.status?.completed===true)continue;const outputs=item.outputs||{};const hasOutput=Object.values(outputs).some(node=>['videos','images','gifs','files','audio'].some(k=>Array.isArray(node?.[k])&&node[k].length));if(hasOutput){item.status=item.status||{};item.status.completed=true;changed=true;}}if(!changed)return r;return new Response(JSON.stringify(data),{status:r.status,statusText:r.statusText,headers:r.headers});}catch{return r;}};})();
