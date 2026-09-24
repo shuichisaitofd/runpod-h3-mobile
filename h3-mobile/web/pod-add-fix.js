@@ -1,5 +1,9 @@
 (()=>{
+let lock=false;
 function addPodFromForm(){
+  if(lock)return;
+  lock=true;
+  setTimeout(()=>{lock=false;},400);
   const nameEl=document.getElementById('newPodName');
   const urlEl=document.getElementById('newPodUrl');
   const msg=document.getElementById('podMessage');
@@ -29,19 +33,15 @@ function bind(){
   if(!btn||btn.dataset.fixed==='1')return;
   btn.dataset.fixed='1';
   btn.type='button';
+  btn.setAttribute('onclick','h3AddPod()');
   btn.style.width='100%';
   btn.style.minHeight='44px';
   btn.style.position='relative';
   btn.style.zIndex='4';
-  const fire=e=>{e.preventDefault();e.stopPropagation();addPodFromForm();};
-  btn.addEventListener('click',fire);
-  btn.addEventListener('touchend',fire,{passive:false});
 }
 bind();
 document.addEventListener('click',e=>{
-  const btn=e.target.closest('#addPod');
-  if(!btn)return;
-  e.preventDefault();
+  if(!e.target.closest('#addPod'))return;
   addPodFromForm();
 },true);
 })();
