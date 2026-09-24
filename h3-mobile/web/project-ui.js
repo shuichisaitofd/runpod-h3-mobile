@@ -79,6 +79,24 @@ if(projectPage&&!projectPage.dataset.bound){
     if(del)deleteProject(del.dataset.projDelete);
   });
 }
+(function setupProjectHeader(){
+  const tabs=$('#tabs');
+  if(tabs&&!$('#openProjects')){
+    const btn=document.createElement('button');
+    btn.id='openProjects';
+    btn.type='button';
+    btn.className='secondary compact';
+    btn.textContent='管理';
+    btn.style.marginTop='0';
+    btn.style.flex='0 0 auto';
+    btn.style.whiteSpace='nowrap';
+    btn.onclick=()=>page('projects');
+    tabs.appendChild(btn);
+  }
+  document.querySelectorAll('.nav[data-target="projects"]').forEach(b=>b.remove());
+  const nav=document.querySelector('.bottomin');
+  if(nav) nav.style.gridTemplateColumns='repeat(6,1fr)';
+})();
 window.renderProjectTabs=renderProjectTabs;
 renderProjectTabs();
 if(!document.querySelector('script[src="job-timer.js"]')){
