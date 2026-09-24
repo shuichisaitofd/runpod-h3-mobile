@@ -50,6 +50,11 @@ function renameProject(id){
   const name=prompt('新しい案件名',p.name);if(!name)return;
   p.name=name.trim();saveProjects(projects);renderProjectTabs();
 }
+function openProjectSettings(){
+  if(typeof page==='function') page('projects');
+  renderProjectSettings();
+  window.scrollTo(0,0);
+}
 const origPage=page;
 page=function(name){
   origPage(name);
@@ -80,12 +85,22 @@ if(projectPage&&!projectPage.dataset.bound){
   });
 }
 (function setupProjectHeader(){
-  const btn=$('#openProjects');
-  if(btn) btn.onclick=()=>page('projects');
+  if(!document.getElementById('h3ProjectUiCss')){
+    const css=document.createElement('style');
+    css.id='h3ProjectUiCss';
+    css.textContent='.project-tabs{align-items:center}.project-tabs select{width:auto!important;flex:1;min-width:0}#openProjects{position:relative;z-index:6;flex:0 0 auto;margin-top:0!important}';
+    document.head.appendChild(css);
+  }
+  const btn=document.getElementById('openProjects');
+  if(btn){
+    btn.onclick=openProjectSettings;
+    btn.addEventListener('touchend',function(e){e.preventDefault();openProjectSettings();},{passive:false});
+  }
   document.querySelectorAll('.nav[data-target="projects"]').forEach(b=>b.remove());
   const nav=document.querySelector('.bottomin');
   if(nav) nav.style.gridTemplateColumns='repeat(6,1fr)';
 })();
+window.openProjectSettings=openProjectSettings;
 window.renderProjectTabs=renderProjectTabs;
 renderProjectTabs();
 if(!document.querySelector('script[src^="job-timer.js"]')){
