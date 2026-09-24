@@ -11,7 +11,7 @@
 <header class="header">
 <div class="row"><div class="brand">H3 Mobile</div><div class="runtime" id="runtime">起動時間 --:--:--</div><div class="status" id="status">接続確認中</div></div>
 <div class="row"><div class="billing" id="billing">残高 -- / 残り -- / 使用額 --</div></div>
-<div class="project-tabs" id="tabs"><button class="pill" id="add">＋追加</button></div>
+<div class="project-tabs" id="tabs"><select id="projectSelect" aria-label="案件切替"></select></div>
 </header>
 <main>
 <section class="page active" data-page="create">
@@ -48,6 +48,11 @@
 <section class="page" data-page="running"><div class="card"><div class="row"><h2 style="margin:0;flex:1">実行中</h2><button class="secondary" id="refreshQueue">更新</button></div><div id="queue"></div></div></section>
 <section class="page" data-page="history"><div class="card"><div class="history-head"><h2>履歴</h2><div class="history-tools"><div class="view-toggle"><button class="secondary active" id="historyListMode">リスト</button><button class="secondary" id="historyLargeMode">大サムネ</button></div><button class="secondary" id="downloadAll">一括ダウンロード</button><button class="secondary" id="refreshHistory">更新</button></div></div><div id="downloadMessage" class="small"></div><div id="historyList"></div></div></section>
 <section class="page" data-page="lora"><div id="h3LoraPage"></div></section>
+<section class="page" data-page="projects">
+<div class="card"><div class="row"><h2 style="margin:0;flex:1">案件設定</h2><button class="secondary" id="addProject">追加</button></div><div class="small">表示中の案件だけヘッダーのプルダウンに出ます。使わない案件はアーカイブへ移します。</div></div>
+<div class="card"><h2>表示中</h2><div id="projectActiveList"></div></div>
+<div class="card"><h2>アーカイブ</h2><div id="projectArchiveList"></div></div>
+</section>
 <section class="page" data-page="settings">
 <div class="card"><h2>モデル管理</h2><div class="small">必要なモデルだけRunPodへ直接ダウンロードします。</div><div class="model-actions"><button class="primary" id="prepareRef">Ref2VAを準備</button><button class="primary" id="prepareI2V">I2Vを準備</button></div><div id="modelMessage" class="notice hidden"></div><div id="modelList" class="model-list"><div class="small">モデル状態を確認中...</div></div></div>
 <div class="card"><h2>接続先Pod</h2><div class="small">RunPod PodのComfyUI Base URLを登録して切り替えられます。未登録のときはこのページの配信元へ直接接続します（APIキー等の認証情報は保存しません）。</div><div id="podList" class="model-list" style="margin-top:10px"></div><div class="grid2" style="margin-top:10px"><div><label>Pod名</label><input id="newPodName" placeholder="例: Pod A"></div><div><label>Base URL</label><input id="newPodUrl" placeholder="https://xxxx-8188.proxy.runpod.net"></div></div><div class="actions" style="margin-top:10px"><button class="secondary" id="addPod">追加</button></div><div id="podMessage" class="small" style="margin-top:8px"></div></div>
@@ -55,13 +60,12 @@
 </section>
 </main>
 </div>
-<nav class="bottom"><div class="bottomin"><button class="nav active" data-target="create">作成</button><button class="nav" data-target="batch">一括</button><button class="nav" data-target="running">実行中</button><button class="nav" data-target="history">履歴</button><button class="nav" data-target="lora">LoRA</button><button class="nav" data-target="settings">設定</button></div></nav>
+<nav class="bottom"><div class="bottomin"><button class="nav active" data-target="create">作成</button><button class="nav" data-target="batch">一括</button><button class="nav" data-target="running">実行中</button><button class="nav" data-target="history">履歴</button><button class="nav" data-target="lora">LoRA</button><button class="nav" data-target="projects">案件</button><button class="nav" data-target="settings">設定</button></div></nav>
 <div class="media-modal hidden" id="mediaModal" role="dialog" aria-modal="true"><button class="modal-close" id="modalClose" aria-label="閉じる">×</button><div class="modal-body" id="modalBody"></div></div>
 <script src="app.js"></script>
+<script src="project-ui.js"></script>
 <script src="copy-prompts.js"></script>
 <script>
-// Some ComfyUI builds expose completed outputs before status.completed/messages are finalized.
-// Treat a history entry with output files as terminal so batch timers do not run forever.
 (()=>{const originalFetch=window.fetch.bind(window);window.fetch=async(input,init)=>{const r=await originalFetch(input,init);try{const url=typeof input==='string'?input:(input&&input.url)||'';if(!/\/history\//.test(url)||!r.ok)return r;const clone=r.clone();const data=await clone.json();let changed=false;for(const item of Object.values(data||{})){if(!item||item.status?.completed===true)continue;const outputs=item.outputs||{};const hasOutput=Object.values(outputs).some(node=>['videos','images','gifs','files','audio'].some(k=>Array.isArray(node?.[k])&&node[k].length));if(hasOutput){item.status=item.status||{};item.status.completed=true;changed=true;}}if(!changed)return r;return new Response(JSON.stringify(data),{status:r.status,statusText:r.statusText,headers:r.headers});}catch{return r;}};})();
 </script>
 <script src="batch-v2.js"></script>
@@ -71,11 +75,7 @@
 <script src="pod-runtime.js"></script>
 <script src="pod-billing.js"></script>
 <script src="lora-library.js"></script>
+<script src="lora-catalog-extra.js"></script>
 <script src="prompt-library.js" data-h3-prompt-library="1"></script>
-<script>
-// Stop single-job timers when ComfyUI history reports completion, and freeze the final generation time.
-(()=>{function setStatus(card,text){if(!card)return;const spans=[...card.querySelectorAll('.meta span')];const status=spans.find(x=>/^(準備中|待機中|実行中|完了|失敗)$/.test((x.textContent||'').trim()));if(status){status.textContent=text;status.className=`job-status ${typeof h3StatusClass==='function'?h3StatusClass(text):''}`.trim();}}function terminal(item){const msgs=item?.status?.messages;if(Array.isArray(msgs)){for(const m of msgs){if(Array.isArray(m)&&['execution_success','execution_error','execution_interrupted'].includes(m[0]))return m[0];}}if(item?.status?.completed===true)return 'execution_success';const outputs=item?.outputs||{};const hasOutput=Object.values(outputs).some(node=>['videos','images','gifs','files','audio'].some(k=>Array.isArray(node?.[k])&&node[k].length));return hasOutput?'execution_success':null;}function secondsFrom(item,fallback){if(typeof historyExecutionSeconds==='function'){const s=historyExecutionSeconds(item);if(s!=null)return s;}return fallback;}function au(path){return typeof apiUrl==='function'?apiUrl(path):path;}
-async function tick(){if(typeof state==='undefined'||!state.jobs)return;const active=[...state.jobs.entries()].filter(([id,job])=>job&&!job.done);if(!active.length)return;let running=new Set(),pending=new Set();try{const qr=await fetch(au('/queue'));if(qr.ok){const q=await qr.json();(q.queue_running||[]).forEach(it=>{if(Array.isArray(it)&&it[1])running.add(it[1]);});(q.queue_pending||[]).forEach(it=>{if(Array.isArray(it)&&it[1])pending.add(it[1]);});}}catch{}for(const [id,job] of active){if(running.has(id)){if(!job.executionStartedAt)job.executionStartedAt=Date.now();job.phase='running';setStatus(job.card,'実行中');continue;}if(pending.has(id)){job.phase='queued';setStatus(job.card,'待機中');continue;}try{const r=await fetch(au('/history/'+encodeURIComponent(id)));if(!r.ok)continue;const data=await r.json();const item=data?.[id]||Object.values(data||{})[0];if(!item)continue;const t=terminal(item);if(!t){if(!job.executionStartedAt)job.executionStartedAt=Date.now();job.phase='running';setStatus(job.card,'実行中');continue;}job.done=true;job.result=t;const fallback=Math.max(0,(Date.now()-(job.executionStartedAt||job.startedAt))/1000);const sec=secondsFrom(item,fallback);const el=job.card?.querySelector('.elapsed');if(t==='execution_success'){setStatus(job.card,'完了');if(el)el.textContent='生成 '+formatDuration(sec);}else{setStatus(job.card,'失敗');if(el)el.textContent='停止 '+formatDuration(sec);}}catch{}}}setInterval(tick,2000);})();
-</script>
 <script src="ios-keyboard.js"></script>
 </body></html>
