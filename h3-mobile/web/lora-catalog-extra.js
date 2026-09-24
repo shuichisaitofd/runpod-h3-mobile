@@ -10,9 +10,10 @@ try{
 }catch(e){}
 if(typeof renderQuick==='function') renderQuick();
 if(typeof renderManager==='function') renderManager();
+const src='pod-add-fix.js?v=2';
 if(!document.querySelector('script[src*="pod-add-fix"]')){
   const s=document.createElement('script');
-  s.src='pod-add-fix.js?v=1';
+  s.src=src;
   document.body.appendChild(s);
 }
 })();
