@@ -81,3 +81,8 @@ if(projectPage&&!projectPage.dataset.bound){
 }
 window.renderProjectTabs=renderProjectTabs;
 renderProjectTabs();
+if(!document.querySelector('script[src="job-timer.js"]')){
+  const s=document.createElement('script');
+  s.src='job-timer.js';
+  document.body.appendChild(s);
+}
