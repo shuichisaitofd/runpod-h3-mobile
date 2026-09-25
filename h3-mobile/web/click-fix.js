@@ -35,13 +35,21 @@
       if(btn) btn.disabled=false;
     }
   }
+  function refreshRunning(){
+    if(typeof updateJobTimers==='function') updateJobTimers();
+    if(typeof tick==='function') tick();
+    if(typeof loadHistory==='function') loadHistory();
+  }
   function bind(){
     clearOverlays();
     const btn=document.getElementById('gen');
-    if(!btn) return;
-    btn.disabled=false;
-    btn.type='button';
-    btn.onclick=h3Generate;
+    if(btn){
+      btn.disabled=false;
+      btn.type='button';
+      btn.onclick=h3Generate;
+    }
+    const refresh=document.getElementById('refreshQueue');
+    if(refresh) refresh.onclick=refreshRunning;
   }
   window.h3Generate=h3Generate;
   bind();
