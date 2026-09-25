@@ -1,9 +1,9 @@
 (()=>{
+  let busy=false;
   function clearOverlays(){
     const modal=document.getElementById('mediaModal');
-    if(modal && !modal.classList.contains('hidden')){
-      /* keep open only if it actually has media */
-      if(!modal.querySelector('video,img,canvas')) modal.classList.add('hidden');
+    if(modal && !modal.classList.contains('hidden') && !modal.querySelector('video,img,canvas')){
+      modal.classList.add('hidden');
     }
     document.querySelectorAll('.media-modal.hidden').forEach(el=>{
       el.style.pointerEvents='none';
@@ -11,12 +11,14 @@
   }
   async function h3Generate(ev){
     if(ev){ev.preventDefault();ev.stopPropagation();}
-    const btn=document.getElementById('gen');
-    if(btn) btn.disabled=false;
+    if(busy) return;
     if(typeof buildAndQueue!=='function'){
       alert('生成処理が読み込めていません。ページを再読み込みしてください。');
       return;
     }
+    busy=true;
+    const btn=document.getElementById('gen');
+    if(btn) btn.disabled=true;
     try{
       await buildAndQueue();
     }catch(e){
@@ -28,16 +30,18 @@
         queue.prepend(d);
       }
       if(typeof page==='function') page('running');
+    }finally{
+      busy=false;
+      if(btn) btn.disabled=false;
     }
   }
   function bind(){
     clearOverlays();
     const btn=document.getElementById('gen');
-    if(!btn || btn.dataset.clickFix==='1') return;
-    btn.dataset.clickFix='1';
+    if(!btn) return;
     btn.disabled=false;
     btn.type='button';
-    btn.addEventListener('click',h3Generate);
+    btn.onclick=h3Generate;
   }
   window.h3Generate=h3Generate;
   bind();
