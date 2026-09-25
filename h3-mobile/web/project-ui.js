@@ -19,6 +19,7 @@ function renderProjectSettings(){
   archiveRoot.innerHTML=arc.length?arc.map(p=>`<div class="model-item" style="margin-bottom:8px"><div class="row"><div class="model-name" style="flex:1">${p.name}</div><button class="secondary compact" data-proj-restore="${p.id}">表示に戻す</button><button class="secondary compact" data-proj-delete="${p.id}">削除</button></div></div>`).join(''):'<div class="small">アーカイブはありません。</div>';
 }
 function renderProjectTabs(){
+  document.querySelectorAll('#tabs .pill-wrap').forEach(el=>el.remove());
   const select=$('#projectSelect');
   if(!select)return;
   const projects=visibleProjects();
@@ -100,7 +101,7 @@ if(projectPage&&!projectPage.dataset.bound){
   if(!document.getElementById('h3ProjectUiCss')){
     const css=document.createElement('style');
     css.id='h3ProjectUiCss';
-    css.textContent='.project-tabs{align-items:center}.project-tabs select{width:auto!important;flex:1;min-width:0}#openProjects{position:relative;z-index:6;flex:0 0 auto;margin-top:0!important}';
+    css.textContent='.project-tabs{align-items:center}.project-tabs select{width:auto!important;flex:1;min-width:0}#openProjects{position:relative;z-index:6;flex:0 0 auto;margin-top:0!important}#tabs .pill-wrap{display:none}';
     document.head.appendChild(css);
   }
   const btn=document.getElementById('openProjects');
@@ -111,13 +112,9 @@ if(projectPage&&!projectPage.dataset.bound){
   document.querySelectorAll('.nav[data-target="projects"]').forEach(b=>b.remove());
   const nav=document.querySelector('.bottomin');
   if(nav) nav.style.gridTemplateColumns='repeat(6,1fr)';
+  document.querySelectorAll('#tabs .pill-wrap').forEach(el=>el.remove());
   syncManageButton();
 })();
 window.openProjectSettings=openProjectSettings;
 window.renderProjectTabs=renderProjectTabs;
 renderProjectTabs();
-if(!document.querySelector('script[src^="job-timer.js"]')){
-  const s=document.createElement('script');
-  s.src='job-timer.js';
-  document.body.appendChild(s);
-}
