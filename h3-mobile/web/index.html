@@ -4,10 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
 <title>H3 Mobile</title>
-<link rel="stylesheet" href="styles.css?v=20260925k">
+<link rel="stylesheet" href="styles.css?v=20260925l">
 <link rel="stylesheet" href="click-fix.css?v=2">
 </head>
 <body>
+<button id="add" type="button" hidden></button>
 <div class="app">
 <header class="header">
 <div class="row"><div class="brand">H3 Mobile</div><div class="runtime" id="runtime">起動時間 --:--:--</div><div class="status" id="status">接続確認中</div></div>
@@ -63,6 +64,7 @@
 </div>
 <nav class="bottom"><div class="bottomin"><button class="nav active" data-target="create">作成</button><button class="nav" data-target="batch">一括</button><button class="nav" data-target="running">実行中</button><button class="nav" data-target="history">履歴</button><button class="nav" data-target="lora">LoRA</button><button class="nav" data-target="settings">設定</button></div></nav>
 <div class="media-modal hidden" id="mediaModal" role="dialog" aria-modal="true"><button class="modal-close" id="modalClose" aria-label="閉じる">×</button><div class="modal-body" id="modalBody"></div></div>
+<script src="boot-fix.js?v=1"></script>
 <script src="app.js"></script>
 <script src="job-timer.js?v=2"></script>
 <script src="project-ui.js?v=20260925d"></script>
