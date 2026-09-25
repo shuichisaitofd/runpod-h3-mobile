@@ -113,7 +113,7 @@
     const root=document.getElementById('queue');
     if(root && !root.dataset.timerBound){
       root.dataset.timerBound='1';
-      new MutationObserver(()=>paint()).observe(root,{childList:true,subtree:true});
+      new MutationObserver(()=>paint()).observe(root,{childList:true});
     }
     paint();
   };
