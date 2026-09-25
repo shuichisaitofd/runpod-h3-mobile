@@ -1,0 +1,10 @@
+.app{padding-bottom:calc(96px + env(safe-area-inset-bottom,0px))!important}
+.bottom{z-index:30;padding-bottom:env(safe-area-inset-bottom,0px)}
+.bottomin{grid-template-columns:repeat(6,1fr)!important}
+.hidden,.media-modal.hidden{display:none!important;pointer-events:none!important}
+.actions .primary,.actions .secondary{position:relative;z-index:4}
+.page[data-page="create"] > .card:last-child{
+  position:sticky;
+  bottom:calc(58px + env(safe-area-inset-bottom,0px));
+  z-index:8;
+}
