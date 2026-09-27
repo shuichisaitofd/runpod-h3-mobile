@@ -10,45 +10,52 @@ function setActive(id,on){
   item.active=!!on;
   saveLib(list);
 }
+function rowItem(row){
+  if(!row)return null;
+  if(row.item) return row.item;
+  const lib=loadLib();
+  return lib.find(x=>x.id===row.id||x.filename===row.filename)||null;
+}
 function wrap(name){
   const orig=window[name];
   if(typeof orig!=='function'||orig._h3ActiveWrapped)return;
   const wrapped=function(ctx){
     const snap=orig(ctx);
     if(!Array.isArray(snap))return snap;
-    const lib=loadLib();
-    return snap.filter(row=>{
-      const item=lib.find(x=>x.id===row.id||x.filename===row.filename);
-      return !item||isActive(item);
-    });
+    return snap.filter(row=>isActive(rowItem(row)));
   };
   wrapped._h3ActiveWrapped=true;
   window[name]=wrapped;
 }
 function decorateManager(){
   document.querySelectorAll('#h3LoraManager .h3-lora-item, .h3-lora-manager .h3-lora-item').forEach(row=>{
-    if(row.querySelector('.m-active-fix'))return;
     const id=row.dataset.id; if(!id)return;
     const item=loadLib().find(x=>x.id===id);
     const on=isActive(item);
-    const btn=document.createElement('button');
-    btn.type='button';
-    btn.className='h3-lora-toggle m-active-fix'+(on?' active':'');
-    btn.textContent=on?'ON':'OFF';
-    btn.style.marginLeft='6px';
-    btn.onclick=()=>{
-      const next=!isActive(loadLib().find(x=>x.id===id));
-      setActive(id,next);
-      btn.textContent=next?'ON':'OFF';
-      btn.classList.toggle('active',next);
-      row.style.opacity=next?'':'0.55';
-      if(typeof renderQuick==='function') renderQuick();
-      filterQuick();
-    };
-    const name=row.querySelector('.h3-lora-name, .h3-lora-summary');
-    (name||row).appendChild(btn);
     row.style.opacity=on?'':'0.55';
+    let btn=row.querySelector('.m-active-fix, .m-active');
+    if(!btn){
+      btn=document.createElement('button');
+      btn.type='button';
+      btn.className='h3-lora-toggle m-active-fix';
+      btn.style.marginLeft='6px';
+      const name=row.querySelector('.h3-lora-name, .h3-lora-summary');
+      (name||row).appendChild(btn);
+      btn.onclick=()=>{
+        const next=!isActive(loadLib().find(x=>x.id===id));
+        setActive(id,next);
+        applyBtn(btn,row,next);
+        filterQuick();
+      };
+    }
+    applyBtn(btn,row,on);
   });
+}
+function applyBtn(btn,row,on){
+  btn.textContent=on?'ON':'OFF';
+  btn.classList.toggle('active',on);
+  btn.setAttribute('aria-pressed',on?'true':'false');
+  row.style.opacity=on?'':'0.55';
 }
 function filterQuick(){
   const lib=loadLib();
@@ -65,5 +72,5 @@ function boot(){
   filterQuick();
 }
 boot();
-setInterval(boot,1200);
+setInterval(boot,800);
 })();

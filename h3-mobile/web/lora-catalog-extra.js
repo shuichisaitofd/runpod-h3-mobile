@@ -17,11 +17,9 @@ try{
     localStorage.setItem(KEY,JSON.stringify(deduped));
   }
 }catch(e){}
-if(typeof renderQuick==='function') renderQuick();
-if(typeof renderManager==='function') renderManager();
 if(!document.querySelector('script[src*="lora-active-fix.js"]')){
   const s=document.createElement('script');
-  s.src='lora-active-fix.js?v=20260928a';
+  s.src='lora-active-fix.js?v=20260928b';
   document.body.appendChild(s);
 }
 })();
