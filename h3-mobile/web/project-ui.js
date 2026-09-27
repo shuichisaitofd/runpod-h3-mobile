@@ -15,7 +15,7 @@ function renderProjectSettings(){
   const projects=getProjects().map(p=>({...p,archived:!!p.archived}));
   const activeId=getActiveProjectId();
   const vis=projects.filter(p=>!p.archived), arc=projects.filter(p=>p.archived);
-  activeRoot.innerHTML=vis.length?vis.map(p=>`<div class="model-item" style="margin-bottom:8px"><div class="row"><div class="model-name" style="flex:1">${p.name}${p.id===activeId?'（使用中）':''}</div><button class="secondary compact" data-proj-use="${p.id}">使う</button><button class="secondary compact" data-proj-rename="${p.id}">改名</button><button class="secondary compact" data-proj-archive="${p.id}">アーカイブ</button></div></div>`).join(''):'<div class="small">表示中の案件はありません。</div>';
+  activeRoot.innerHTML=vis.length?vis.map((p,i)=>`<div class="model-item" style="margin-bottom:8px"><div class="model-name">${p.name}${p.id===activeId?'（使用中）':''}</div><div class="row" style="flex-wrap:wrap;margin-top:8px"><button class="secondary compact" data-proj-up="${p.id}" ${i===0?'disabled':''}>▲ 上へ</button><button class="secondary compact" data-proj-down="${p.id}" ${i===vis.length-1?'disabled':''}>▼ 下へ</button><button class="secondary compact" data-proj-use="${p.id}">使う</button><button class="secondary compact" data-proj-rename="${p.id}">改名</button><button class="secondary compact" data-proj-archive="${p.id}">アーカイブ</button></div></div>`).join(''):'<div class="small">表示中の案件はありません。</div>';
   archiveRoot.innerHTML=arc.length?arc.map(p=>`<div class="model-item" style="margin-bottom:8px"><div class="row"><div class="model-name" style="flex:1">${p.name}</div><button class="secondary compact" data-proj-restore="${p.id}">表示に戻す</button><button class="secondary compact" data-proj-delete="${p.id}">削除</button></div></div>`).join(''):'<div class="small">アーカイブはありません。</div>';
 }
 function renderProjectTabs(){
@@ -35,6 +35,19 @@ function renderProjectTabs(){
   }
   renderProjectSettings();
   syncManageButton();
+}
+function moveProject(id,delta){
+  const projects=getProjects();
+  const index=projects.findIndex(p=>p.id===id);
+  if(index<0)return;
+  const archived=!!projects[index].archived;
+  let target=-1;
+  if(delta<0){for(let i=index-1;i>=0;i--){if(!!projects[i].archived===archived){target=i;break;}}}
+  else{for(let i=index+1;i<projects.length;i++){if(!!projects[i].archived===archived){target=i;break;}}}
+  if(target<0)return;
+  [projects[index],projects[target]]=[projects[target],projects[index]];
+  saveProjects(projects);
+  renderProjectTabs();
 }
 async function archiveProject(id){
   const projects=getProjects();
@@ -85,11 +98,15 @@ const projectPage=$('#projectActiveList')?.closest('.page');
 if(projectPage&&!projectPage.dataset.bound){
   projectPage.dataset.bound='1';
   projectPage.addEventListener('click',e=>{
+    const up=e.target.closest('[data-proj-up]');
+    const down=e.target.closest('[data-proj-down]');
     const use=e.target.closest('[data-proj-use]');
     const rename=e.target.closest('[data-proj-rename]');
     const archive=e.target.closest('[data-proj-archive]');
     const restore=e.target.closest('[data-proj-restore]');
     const del=e.target.closest('[data-proj-delete]');
+    if(up)moveProject(up.dataset.projUp,-1);
+    if(down)moveProject(down.dataset.projDown,1);
     if(use){switchProject(use.dataset.projUse);page('create');}
     if(rename)renameProject(rename.dataset.projRename);
     if(archive)archiveProject(archive.dataset.projArchive);
