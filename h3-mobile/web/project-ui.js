@@ -155,7 +155,7 @@ setupProjectDrag();
   if(!document.getElementById('h3ProjectUiCss')){
     const css=document.createElement('style');
     css.id='h3ProjectUiCss';
-    css.textContent='.project-tabs{align-items:center}.project-tabs select{width:auto!important;flex:1;min-width:0}#openProjects{position:relative;z-index:6;flex:0 0 auto;margin-top:0!important}#tabs .pill-wrap{display:none}';
+    css.textContent='.project-tabs{align-items:center}.project-tabs select{width:auto!important;flex:1;min-width:0}#openProjects{position:relative;z-index:6;flex:0 0 auto;margin-top:0!important}#tabs .pill-wrap{display:none}.proj-drag-handle{cursor:grab;font-size:22px;line-height:1;padding:6px 12px;touch-action:none;user-select:none;-webkit-user-select:none;color:#98a2b3;flex:0 0 auto}.proj-row.dragging{opacity:.6;position:relative;z-index:10;background:#1b2130}';
     document.head.appendChild(css);
   }
   const btn=document.getElementById('openProjects');
