@@ -9,7 +9,6 @@ try{
     const names=new Set();
     const deduped=[];
     for(const item of cleaned){
-      const key=(item.filename||'')+'|'+(item.id||'');
       if(names.has(item.filename)) continue;
       names.add(item.filename);
       deduped.push(item);
@@ -20,4 +19,9 @@ try{
 }catch(e){}
 if(typeof renderQuick==='function') renderQuick();
 if(typeof renderManager==='function') renderManager();
+if(!document.querySelector('script[src*="lora-active-fix.js"]')){
+  const s=document.createElement('script');
+  s.src='lora-active-fix.js?v=20260928a';
+  document.body.appendChild(s);
+}
 })();
