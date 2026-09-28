@@ -50,6 +50,25 @@ function setupProjectDrag(){
   if(!root||root.dataset.dragBound)return;
   root.dataset.dragBound='1';
   let dragEl=null;
+  let pendingY=null;
+  let rafId=null;
+  const applyMove=()=>{
+    rafId=null;
+    if(!dragEl||pendingY==null)return;
+    const y=pendingY;
+    const rows=[...root.querySelectorAll('.proj-row')].filter(r=>r!==dragEl);
+    let target=null;
+    for(const r of rows){
+      const rect=r.getBoundingClientRect();
+      const mid=rect.top+rect.height/2;
+      if(y<mid){target=r;break;}
+    }
+    if(target){
+      if(dragEl.nextSibling!==target)root.insertBefore(dragEl,target);
+    }else if(root.lastElementChild!==dragEl){
+      root.appendChild(dragEl);
+    }
+  };
   root.addEventListener('pointerdown',e=>{
     const handle=e.target.closest('[data-proj-drag]');
     if(!handle)return;
@@ -61,26 +80,20 @@ function setupProjectDrag(){
     try{handle.setPointerCapture(e.pointerId);}catch(err){}
     const onMove=ev=>{
       if(!dragEl)return;
-      const y=ev.clientY;
-      const rows=[...root.querySelectorAll('.proj-row')];
-      for(const r of rows){
-        if(r===dragEl)continue;
-        const rect=r.getBoundingClientRect();
-        const mid=rect.top+rect.height/2;
-        const dragFollows=!!(r.compareDocumentPosition(dragEl)&Node.DOCUMENT_POSITION_FOLLOWING);
-        if(y<mid&&dragFollows){root.insertBefore(dragEl,r);break;}
-        if(y>mid&&!dragFollows){root.insertBefore(dragEl,r.nextSibling);break;}
-      }
+      pendingY=ev.clientY;
+      if(rafId==null)rafId=requestAnimationFrame(applyMove);
     };
     const onUp=ev=>{
       try{handle.releasePointerCapture(ev.pointerId);}catch(err){}
       handle.removeEventListener('pointermove',onMove);
       handle.removeEventListener('pointerup',onUp);
       handle.removeEventListener('pointercancel',onUp);
+      if(rafId!=null){cancelAnimationFrame(rafId);rafId=null;}
       if(dragEl){
         dragEl.classList.remove('dragging');
         const ids=[...root.querySelectorAll('.proj-row')].map(r=>r.dataset.projId);
         dragEl=null;
+        pendingY=null;
         reorderActiveProjects(ids);
       }
     };
