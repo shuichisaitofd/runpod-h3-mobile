@@ -66,6 +66,14 @@ table{width:100%;font-size:13px;border-collapse:collapse}td{padding:3px 4px;bord
 <div id="slimmsg" class="small"></div>
 </div>
 
+<div class="card">
+<b>⑤ このサイトの保存データを消す（最終手段）</b>
+<div class="small">①〜③でバックアップを保存したあとに使います。このサイト（このURL）の案件・LoRA登録・生成設定・プロンプトライブラリを消して、空の状態にします。RunPodの課金・キー類は消しません。画像や動画の履歴（別の保存場所）も消しません。消したあとに、バックアップファイルを読み込み直します。</div>
+<div id="wipeinfo" class="small"></div>
+<button id="wipego" class="sub">保存データを消す</button>
+<div id="wipemsg" class="small"></div>
+</div>
+
 <script>
 (()=>{
 const $=id=>document.getElementById(id);
@@ -186,6 +194,22 @@ $('slimgo').onclick=function(){
     localStorage.setItem(KEY,s);
     info();say('完了: '+before+' → '+s.length+' 文字。アプリのページを開き直してLoRAを確認してください。',true);
   }catch(e){say('失敗しました（何も変更していません）: '+e.message,false);}
+};
+})();
+</script>
+<script>
+(function(){
+var SECRET=/billing|secret|token|apikey|api_key|password/i,armed=false;
+function $(i){return document.getElementById(i);}
+function keys(){var r=[];for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);if(!SECRET.test(k))r.push(k);}return r;}
+function info(){var t=0;keys().forEach(function(k){t+=(localStorage.getItem(k)||'').length;});$('wipeinfo').textContent='消す対象: '+keys().length+' 項目 / '+t+' 文字';}
+info();
+$('wipego').onclick=function(){
+  var m=$('wipemsg');
+  if(!armed){armed=true;$('wipego').textContent='本当に消す（もう一度押す）';m.textContent='バックアップは保存済みですか？ よければもう一度押してください。';m.className='small ng';return;}
+  armed=false;$('wipego').textContent='保存データを消す';
+  try{var ks=keys();ks.forEach(function(k){localStorage.removeItem(k);});info();m.textContent='消しました（'+ks.length+'項目）。アプリのページを開き直してください。';m.className='small ok';}
+  catch(e){m.textContent='失敗しました: '+e.message;m.className='small ng';}
 };
 })();
 </script>
