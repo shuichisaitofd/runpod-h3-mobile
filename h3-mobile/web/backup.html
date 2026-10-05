@@ -33,11 +33,20 @@ table{width:100%;font-size:13px;border-collapse:collapse}td{padding:3px 4px;bord
 </div>
 
 <div class="card">
-<b>③ プロンプトライブラリ</b>
-<div class="small">保存済みプロンプト（prompt-library）だけを書き出します。</div>
-<button id="pldl" class="sub">プロンプトライブラリを保存</button>
-<button id="plcopy" class="sub">プロンプトライブラリをコピー</button>
+<b>③ プロンプトライブラリ / 一括バックアップ</b>
+<div class="small">アプリの「ライブラリ」画面でそのまま読み込める形式です。一括は「案件・エンチャーティップ　 プロンプトライブラリ」を1ファイルにまとめます。</div>
+<button id="fulldl">一括バックアップを保存（おすすめ）</button>
+<button id="fullshare" class="sub">一括バックアップを共有 / ファイルに保存</button>
+<button id="fullcopy" class="sub">一括バックアップをコピー</button>
+<button id="pldl" class="sub">プロンプトライブラリだけ保存</button>
+<button id="plcopy" class="sub">プロンプトライブラリだけコピー</button>
 <div id="plinfo" class="small"></div>
+</div>
+
+<div class="card">
+<b>診断（保存データが壊れていないか）</b>
+<div class="small">「NG」の行があれば、その項目が壊れています。画面を撮って教えてください。</div>
+<table id="diag"></table>
 </div>
 
 <div class="card">
@@ -107,14 +116,33 @@ $('share').onclick=async()=>{
 $('copy').onclick=async()=>{if(!main)return;msg((await copy(text(main)))?'コピーしました。メモ等に貼り付けて保管してください。':'コピーできませんでした。枠内を長押しして全選択→コピーしてください。',true);};
 $('rawdl').onclick=()=>{saveFile('h3-mobile-raw-'+stamp()+'.json',text(raw()));msg('生データを保存しました。',true);};
 $('rawcopy').onclick=async()=>{msg((await copy(text(raw())))?'生データをコピーしました。':'コピーできませんでした。',true);};
-function pl(){
- const o={kind:'h3-mobile-prompt-library',exportedAt:new Date().toISOString(),origin:location.origin,data:{}};
- for(const k of ['prompt-library-v5','h3MobilePromptLibraryV1','h3PendingLibraryPrompt']){const v=localStorage.getItem(k);if(v!=null)o.data[k]=v;}
- return o;
+function pcat(){try{const v=localStorage.getItem('prompt-library-v5');return v==null?null:JSON.parse(v);}catch(e){return null;}}
+function plRaw(){const v=localStorage.getItem('prompt-library-v5');return v;}
+function pcount(c){return Array.isArray(c)?c.length:(c&&Array.isArray(c.items)?c.items.length:0);}
+function full(){
+ const c=pcat();
+ return{schema:'h3-mobile-full',version:1,exportedAt:new Date().toISOString(),settings:main,promptLibrary:c};
 }
-$('pldl').onclick=()=>{saveFile('h3-mobile-prompt-library-'+stamp()+'.json',text(pl()));msg('プロンプトライブラリを保存しました。',true);};
-$('plcopy').onclick=async()=>{msg((await copy(text(pl())))?'プロンプトライブラリをコピーしました。':'コピーできませんでした。',true);};
-{const p=pl();const n=Object.values(p.data).reduce((a,v)=>a+v.length,0);$('plinfo').textContent=Object.keys(p.data).length?('見つかった項目: '+Object.keys(p.data).join(', ')+'（'+n+' 文字）'):'このURLにはプロンプトライブラリがありません。';}
+$('pldl').onclick=()=>{const c=pcat();if(c==null){msg('プロンプトライブラリが見つかりません。',false);return;}saveFile('h3-mobile-prompt-library-'+stamp()+'.json',text(c));msg('プロンプトライブラリを保存しました（'+pcount(c)+'件）。',true);};
+$('plcopy').onclick=async()=>{const c=pcat();if(c==null){msg('プロンプトライブラリが見つかりません。',false);return;}msg((await copy(text(c)))?'コピーしました。':'コピーできませんでした。',true);};
+$('fulldl').onclick=()=>{if(!main)return;saveFile('h3-mobile-full-backup-'+stamp()+'.json',text(full()));msg('一括バックアップを保存しました。',true);};
+$('fullcopy').onclick=async()=>{if(!main)return;msg((await copy(text(full())))?'一括バックアップをコピーしました。':'コピーできませんでした。',true);};
+$('fullshare').onclick=async()=>{
+ if(!main)return;
+ const f=new File([text(full())],'h3-mobile-full-backup-'+stamp()+'.json',{type:'application/json'});
+ try{
+  if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:'H3 Mobile full backup'});msg('共有しました。',true);return;}
+  await navigator.share({title:'H3 Mobile full backup',text:text(full())});msg('共有しました。',true);
+ }catch(e){msg('共有をキャンセル、または非対応です: '+(e&&e.name||''),false);}
+};
+{const c=pcat();$('plinfo').textContent=c!=null?('プロンプトライブラリ: '+pcount(c)+' 件を検出'):'このURLにはプロンプトライブラリがありません。';}
+const dg=$('diag');
+for(let i=0;i<localStorage.length;i++){
+ const k=localStorage.key(i);if(SKIP.test(k))continue;
+ const v=localStorage.getItem(k)||'';const r=dg.insertRow();r.insertCell().textContent=k;
+ let st;try{const p=JSON.parse(v);st='OK'+(Array.isArray(p)?'（'+p.length+'件）':(p&&Array.isArray(p.items)?'（'+p.items.length+'件）':''));r.cells[0].className='';}catch(e){st=(v===''||/^[A-Za-z0-9_-]{1,64}$/.test(v))?'OK(文字列)':'NG 壊れています';}
+ const c=r.insertCell();c.textContent=st;c.className=st.startsWith('NG')?'ng':'ok';
+}
 const tb=$('keys');
 for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(!SKIP.test(k)){const r=tb.insertRow();r.insertCell().textContent=k;r.insertCell().textContent=((localStorage.getItem(k)||'').length)+' 文字';}}
 })();
