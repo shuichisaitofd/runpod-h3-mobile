@@ -33,8 +33,16 @@ table{width:100%;font-size:13px;border-collapse:collapse}td{padding:3px 4px;bord
 </div>
 
 <div class="card">
+<b>③ プロンプトライブラリ</b>
+<div class="small">保存済みプロンプト（prompt-library）だけを書き出します。</div>
+<button id="pldl" class="sub">プロンプトライブラリを保存</button>
+<button id="plcopy" class="sub">プロンプトライブラリをコピー</button>
+<div id="plinfo" class="small"></div>
+</div>
+
+<div class="card">
 <b>② 念のための生データ</b>
-<div class="small">h3 で始まる保存項目を、そのまま書き出します（課金・キー類は除外）。</div>
+<div class="small">このブラウザに保存されている項目を、そのまま全部書き出します（プロンプトライブラリ等を含む。課金・キー類は除外）。</div>
 <button id="rawdl" class="sub">生データを保存</button>
 <button id="rawcopy" class="sub">生データをコピー</button>
 <table id="keys"></table>
@@ -65,7 +73,7 @@ function build(){
 }
 function raw(){
  const o={};
- for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(/^h3/i.test(k)&&!SKIP.test(k))o[k]=localStorage.getItem(k);}
+ for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(!SKIP.test(k))o[k]=localStorage.getItem(k);}
  return{kind:'h3-mobile-localstorage-raw',exportedAt:new Date().toISOString(),origin:location.origin,data:o};
 }
 function text(o){return JSON.stringify(o,null,2);}
@@ -99,8 +107,16 @@ $('share').onclick=async()=>{
 $('copy').onclick=async()=>{if(!main)return;msg((await copy(text(main)))?'コピーしました。メモ等に貼り付けて保管してください。':'コピーできませんでした。枠内を長押しして全選択→コピーしてください。',true);};
 $('rawdl').onclick=()=>{saveFile('h3-mobile-raw-'+stamp()+'.json',text(raw()));msg('生データを保存しました。',true);};
 $('rawcopy').onclick=async()=>{msg((await copy(text(raw())))?'生データをコピーしました。':'コピーできませんでした。',true);};
+function pl(){
+ const o={kind:'h3-mobile-prompt-library',exportedAt:new Date().toISOString(),origin:location.origin,data:{}};
+ for(const k of ['prompt-library-v5','h3MobilePromptLibraryV1','h3PendingLibraryPrompt']){const v=localStorage.getItem(k);if(v!=null)o.data[k]=v;}
+ return o;
+}
+$('pldl').onclick=()=>{saveFile('h3-mobile-prompt-library-'+stamp()+'.json',text(pl()));msg('プロンプトライブラリを保存しました。',true);};
+$('plcopy').onclick=async()=>{msg((await copy(text(pl())))?'プロンプトライブラリをコピーしました。':'コピーできませんでした。',true);};
+{const p=pl();const n=Object.values(p.data).reduce((a,v)=>a+v.length,0);$('plinfo').textContent=Object.keys(p.data).length?('見つかった項目: '+Object.keys(p.data).join(', ')+'（'+n+' 文字）'):'このURLにはプロンプトライブラリがありません。';}
 const tb=$('keys');
-for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(/^h3/i.test(k)&&!SKIP.test(k)){const r=tb.insertRow();r.insertCell().textContent=k;r.insertCell().textContent=((localStorage.getItem(k)||'').length)+' 文字';}}
+for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(!SKIP.test(k)){const r=tb.insertRow();r.insertCell().textContent=k;r.insertCell().textContent=((localStorage.getItem(k)||'').length)+' 文字';}}
 })();
 </script>
 </body>
