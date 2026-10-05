@@ -52,6 +52,13 @@ function envInfo(){
   for(var k in feats)log(k+': '+feats[k]);
   log('localStorage: '+t(function(){localStorage.setItem('__d','1');localStorage.removeItem('__d');return 'OK';}));
   log('キー数: '+t(function(){return localStorage.length;}));
+  sec('保存データの大きさ（大きい順）');
+  var rows=[],tot=0;
+  t(function(){for(var i=0;i<localStorage.length;i++){var kk=localStorage.key(i),n=(localStorage.getItem(kk)||'').length;tot+=n+kk.length;rows.push([kk,n]);}});
+  rows.sort(function(a,b){return b[1]-a[1];});
+  rows.forEach(function(r){log(r[1]+' 文字  '+r[0]);});
+  log('合計: '+tot+' 文字（Safariの上限はおよそ500万文字）');
+  sec('LoRA登録');
   var lib=t(function(){return JSON.parse(localStorage.getItem('h3MobileLoraLibraryV1')||'null');});
   log('LoRA登録: '+(Array.isArray(lib)?lib.length+'件':String(lib)));
 }
