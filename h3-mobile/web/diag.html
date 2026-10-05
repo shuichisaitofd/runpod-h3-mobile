@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>H3 Mobile 診断</title>
+<style>
+body{margin:0;padding:16px;background:#0f131b;color:#e8ecf3;font:15px/1.6 -apple-system,BlinkMacSystemFont,sans-serif}
+h1{font-size:20px;margin:0 0 6px}
+button{display:block;width:100%;padding:14px;margin:8px 0;border:0;border-radius:10px;background:#4f6df5;color:#fff;font-size:16px;font-weight:600}
+textarea{width:100%;box-sizing:border-box;height:360px;background:#0b0e14;color:#cfe3ff;border:1px solid #2b3240;border-radius:8px;padding:8px;font:12px/1.4 ui-monospace,monospace}
+.small{font-size:13px;color:#9aa6bd}
+iframe{position:absolute;left:-9999px;width:390px;height:700px;border:0}
+</style>
+</head>
+<body>
+<h1>H3 Mobile 診断</h1>
+<div class="small">このページは何も変更・送信しません。結果を下の枠に出すので、全体をコピーするか画面を撮って教えてください。</div>
+<button id="run">診断をはじめる</button>
+<div id="msg" class="small"></div>
+<textarea id="out" readonly></textarea>
+<button id="copy">結果をコピー</button>
+<script>
+(function(){
+var out=document.getElementById('out'),msg=document.getElementById('msg'),L=[];
+function log(s){L.push(s);out.value=L.join('\n');}
+function sec(s){log('');log('== '+s+' ==');}
+function t(f){try{return f();}catch(e){return 'ERR '+(e&&e.message);}}
+document.getElementById('copy').onclick=function(){
+  out.focus();out.select();var ok=false;
+  try{ok=document.execCommand('copy');}catch(e){}
+  msg.textContent=ok?'コピーしました。':'枠を長押し→全選択→コピーしてください。';
+};
+function envInfo(){
+  sec('環境');
+  log('UA: '+navigator.userAgent);
+  log('origin: '+location.origin);
+  log('cookieEnabled: '+navigator.cookieEnabled);
+  var feats={
+    randomUUID:t(function(){return typeof crypto.randomUUID;}),
+    AbortController:typeof AbortController,
+    structuredClone:typeof structuredClone,
+    'Array.at':typeof [].at,
+    replaceAll:typeof ''.replaceAll,
+    allSettled:typeof Promise.allSettled,
+    indexedDB:typeof indexedDB,
+    ResizeObserver:typeof ResizeObserver,
+    clipboard:typeof (navigator.clipboard),
+    standalone:String(navigator.standalone)
+  };
+  for(var k in feats)log(k+': '+feats[k]);
+  log('localStorage: '+t(function(){localStorage.setItem('__d','1');localStorage.removeItem('__d');return 'OK';}));
+  log('キー数: '+t(function(){return localStorage.length;}));
+  var lib=t(function(){return JSON.parse(localStorage.getItem('h3MobileLoraLibraryV1')||'null');});
+  log('LoRA登録: '+(Array.isArray(lib)?lib.length+'件':String(lib)));
+}
+function scripts(){
+  sec('スクリプトの取得と文法チェック');
+  var base=location.href.replace(/[^\/]*$/,'');
+  return fetch(base+'index.html?d='+Date.now(),{cache:'reload'}).then(function(r){return r.text();}).then(function(html){
+    var re=/<script[^>]*\ssrc="([^"]+)"/g,m,list=[];
+    while((m=re.exec(html)))list.push(m[1]);
+    log('index.html が読み込む数: '+list.length);
+    var p=Promise.resolve();
+    list.forEach(function(src){
+      p=p.then(function(){
+        return fetch(base+src.split('?')[0]+'?d='+Date.now(),{cache:'reload'}).then(function(r){
+          var st=r.status;
+          return r.text().then(function(code){
+            var res='OK';
+            if(st!==200)res='取得失敗';
+            else{try{new Function(code);}catch(e){res='NG 文法エラー: '+e.message;}}
+            log(res+'  '+st+'  '+code.length+'B  '+src.split('?')[0]);
+          });
+        }).catch(function(e){log('NG 通信失敗  '+src+'  '+e.message);});
+      });
+    });
+    return p;
+  }).catch(function(e){log('index.html を取得できません: '+e.message);});
+}
+function app(){
+  sec('アプリを実際に開いたときの動作');
+  return new Promise(function(done){
+    var f=document.createElement('iframe'),errs=[],hooked=false;
+    f.src='index.html?diag='+Date.now();
+    document.body.appendChild(f);
+    var iv=setInterval(function(){
+      try{
+        var w=f.contentWindow;
+        if(!hooked&&w&&w.location.href.indexOf('index.html')>-1&&!w.__dh){
+          w.__dh=1;hooked=true;
+          w.addEventListener('error',function(e){errs.push('error: '+e.message+' @'+String(e.filename||'').split('/').pop()+':'+e.lineno);});
+          w.addEventListener('unhandledrejection',function(e){errs.push('reject: '+(e.reason&&e.reason.message||e.reason));});
+        }
+      }catch(e){}
+    },1);
+    function finish(){
+      clearInterval(iv);
+      try{
+        var w=f.contentWindow,d=w.document;
+        var btn=d.querySelector('[data-target="lora"]');
+        log('LoRAボタン: '+(btn?'あり':'なし'));
+        if(btn){btn.click();}
+        setTimeout(function(){
+          try{
+            var p=d.getElementById('h3LoraPage');
+            log('LoRAページ要素: '+(p?'あり':'なし'));
+            if(p){log('中身の長さ: '+p.innerHTML.length+' 文字');log('文字: '+(p.innerText||'').replace(/\s+/g,' ').slice(0,200));}
+          }catch(e){log('確認失敗: '+e.message);}
+          log('捕まえたエラー: '+errs.length+'件');
+          errs.slice(0,15).forEach(function(s){log(' - '+s);});
+          done();
+        },1500);
+      }catch(e){log('アプリ確認に失敗: '+e.message);done();}
+    }
+    f.onload=function(){setTimeout(finish,2500);};
+  });
+}
+document.getElementById('run').onclick=function(){
+  L=[];out.value='';msg.textContent='診断中…（10秒ほどかかります）';
+  envInfo();
+  scripts().then(app).then(function(){log('');log('-- 完了 --');msg.textContent='完了。下の結果を教えてください。';});
+};
+})();
+</script>
+</body>
+</html>
