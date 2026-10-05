@@ -57,6 +57,15 @@ table{width:100%;font-size:13px;border-collapse:collapse}td{padding:3px 4px;bord
 <table id="keys"></table>
 </div>
 
+<div class="card">
+<b>④ Safariの容量を空ける（LoRAが表示されない時）</b>
+<div class="small">保存領域がいっぱいで画面が止まっている時に使います。案件データから、画像やファイル参照などの重い部分だけを外します。案件名・プロンプト・設定は残ります。必ず先に「元データを退避保存」を押してください。</div>
+<div id="sliminfo" class="small"></div>
+<button id="slimraw" class="sub">1. 元の案件データを退避保存</button>
+<button id="slimgo" class="sub">2. 軽くする（1のあとに押せます）</button>
+<div id="slimmsg" class="small"></div>
+</div>
+
 <script>
 (()=>{
 const $=id=>document.getElementById(id);
@@ -145,6 +154,39 @@ for(let i=0;i<localStorage.length;i++){
 }
 const tb=$('keys');
 for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(!SKIP.test(k)){const r=tb.insertRow();r.insertCell().textContent=k;r.insertCell().textContent=((localStorage.getItem(k)||'').length)+' 文字';}}
+})();
+</script>
+<script>
+(function(){
+var KEY='h3MobileProjects',saved=false,armed=false;
+function $(i){return document.getElementById(i);}
+function say(t,ok){var m=$('slimmsg');m.textContent=t;m.className='small '+(ok?'ok':'ng');}
+function size(){var v=localStorage.getItem(KEY);return v?v.length:0;}
+function info(){$('sliminfo').textContent='現在の案件データ: '+size()+' 文字（合計の上限はおよそ250万文字）';}
+info();
+function sanitize(p){var c=Object.assign({},p);c.images={image0:null,ref0:null,ref1:null,ref2:null,ref3:null};if(c.batch&&typeof c.batch==='object')c.batch=Object.assign({},c.batch,{i2vFiles:[],refSets:[{files:[null,null,null,null]}]});return c;}
+function strip(o){if(typeof o==='string')return o.length>20000?'':o;if(Array.isArray(o))return o.map(strip);if(o&&typeof o==='object'){var r={};for(var k in o)r[k]=strip(o[k]);return r;}return o;}
+$('slimraw').onclick=function(){
+  var raw=localStorage.getItem(KEY);
+  if(raw==null){say('案件データがありません。',false);return;}
+  var b=new Blob([raw],{type:'application/json'}),u=URL.createObjectURL(b),a=document.createElement('a');
+  a.href=u;a.download='h3-mobile-projects-raw-'+new Date().toISOString().slice(0,10)+'.json';document.body.appendChild(a);a.click();a.remove();
+  setTimeout(function(){URL.revokeObjectURL(u);},4000);
+  saved=true;say('退避保存を実行しました。ファイルに保存されたのを確認してから、2を押してください。',true);
+};
+$('slimgo').onclick=function(){
+  if(!saved){say('先に「1. 元の案件データを退避保存」を押してください。',false);return;}
+  if(!armed){armed=true;$('slimgo').textContent='もう一度押すと実行します';return;}
+  armed=false;$('slimgo').textContent='2. 軽くする（1のあとに押せます）';
+  try{
+    var before=size(),list=JSON.parse(localStorage.getItem(KEY)||'[]');
+    if(!Array.isArray(list))throw new Error('案件データの形式が想定と違います');
+    var out=list.filter(Boolean).map(sanitize),s=JSON.stringify(out);
+    if(s.length>600000){out=strip(out);s=JSON.stringify(out);}
+    localStorage.setItem(KEY,s);
+    info();say('完了: '+before+' → '+s.length+' 文字。アプリのページを開き直してLoRAを確認してください。',true);
+  }catch(e){say('失敗しました（何も変更していません）: '+e.message,false);}
+};
 })();
 </script>
 </body>
