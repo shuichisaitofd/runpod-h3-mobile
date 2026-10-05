@@ -75,6 +75,12 @@ function saveLib(value){localStorage.setItem(LIB_KEY,JSON.stringify(value.map(no
 function defaultEnabled(){return false;}
 function getProjectList(){return typeof getProjects==='function'?getProjects():[];}
 function saveProjectList(projects){if(typeof saveProjects==='function')saveProjects(projects);}
+// 保存容量対策: 既定値と同じLoRA選択(OFF/既定強度/既定順)は保存せず、読み出し時に補う。
+// 案件が多いと「全LoRA x 全モード」を案件ごとに保存して localStorage(約5MB)を使い切るため。
+function defaultSel(id,lib){const list=lib||loadLib(),i=list.findIndex(item=>item.id===id);return{enabled:false,strength:i<0?1:list[i].defaultStrength,order:i<0?0:i};}
+function compactSelections(projects,lib){const list=(lib&&lib.length)?lib:loadLib();const idx=new Map(list.map((item,i)=>[item.id,i]));let removed=0;for(const project of projects||[]){const sel=project&&project.loraSelections;if(!sel||typeof sel!=='object')continue;for(const ctx of Object.keys(sel)){const map=sel[ctx];if(!map||typeof map!=='object')continue;for(const id of Object.keys(map)){const entry=map[id],i=idx.get(id);if(i!==undefined&&entry&&entry.enabled===false&&Number(entry.strength)===Number(list[i].defaultStrength)&&Number(entry.order)===i){delete map[id];removed++;}}}}return removed;}
+function compactStored(){try{const raw=localStorage.getItem(PROJECTS_KEY);if(!raw||raw.length<100000)return;let lib=loadLib();if(!lib.length)lib=DEFAULT_LORA_CATALOG.map(catalogRecord);const projects=JSON.parse(raw);if(!Array.isArray(projects))return;if(!compactSelections(projects,lib))return;const out=JSON.stringify(projects);if(out.length<raw.length*0.9)localStorage.setItem(PROJECTS_KEY,out);}catch(e){console.warn('[H3] compactStored',e);}}
+(()=>{const original=window.saveProjects;if(typeof original!=='function'||original.__h3Compact)return;const wrapped=function(list){try{compactSelections(list);}catch{}return original.call(this,list);};wrapped.__h3Compact=true;window.saveProjects=wrapped;})();
 function clone(value){return JSON.parse(JSON.stringify(value||{}));}
 function removeSelectionIds(selections,ids){let changed=false;for(const values of Object.values(selections||{})){if(!values||typeof values!=='object')continue;for(const id of ids){if(Object.prototype.hasOwnProperty.call(values,id)){delete values[id];changed=true;}}}return changed;}
 function catalogRecord(definition){return normalizeItem({...definition,originalFilename:definition.filename,sha256:'',defaultStrength:1});}
@@ -92,16 +98,12 @@ function migrateDefaultCatalog(){
 }
 function seed(){
  migrateDefaultCatalog();
- const library=loadLib();
  const legacy=loadJson(LEGACY_SEL_KEY,{}),projects=getProjectList();let changed=false;
- for(const project of projects){
-  if(!project.loraSelections){project.loraSelections=clone(legacy);changed=true;}
-  for(const ctx of CONTEXTS){project.loraSelections[ctx]=project.loraSelections[ctx]||{};library.forEach((item,index)=>{if(!project.loraSelections[ctx][item.id]){project.loraSelections[ctx][item.id]={enabled:defaultEnabled(ctx,item.id),strength:item.defaultStrength,order:index};changed=true;}else if(!Number.isFinite(Number(project.loraSelections[ctx][item.id].order))){project.loraSelections[ctx][item.id].order=index;changed=true;}});}
- }
+ for(const project of projects){if(!project.loraSelections){project.loraSelections=clone(legacy);changed=true;}}
  if(changed)saveProjectList(projects);
 }
-function projectContext(ctx){seed();const projects=getProjectList(),activeId=typeof getActiveProjectId==='function'?getActiveProjectId():null,index=projects.findIndex(project=>project.id===activeId);if(index<0)return{};projects[index].loraSelections=projects[index].loraSelections||{};projects[index].loraSelections[ctx]=projects[index].loraSelections[ctx]||{};const settings=projects[index].loraSelections[ctx];let changed=false;loadLib().forEach((item,order)=>{if(!settings[item.id]){settings[item.id]={enabled:defaultEnabled(ctx,item.id),strength:item.defaultStrength,order};changed=true;}});if(changed)saveProjectList(projects);return settings;}
-function setSelection(ctx,id,patch){const projects=getProjectList(),activeId=typeof getActiveProjectId==='function'?getActiveProjectId():null,index=projects.findIndex(project=>project.id===activeId);if(index<0)return;projects[index].loraSelections=projects[index].loraSelections||{};projects[index].loraSelections[ctx]=projects[index].loraSelections[ctx]||{};projects[index].loraSelections[ctx][id]={...(projects[index].loraSelections[ctx][id]||{}),...patch};saveProjectList(projects);}
+function projectContext(ctx){seed();const projects=getProjectList(),activeId=typeof getActiveProjectId==='function'?getActiveProjectId():null,index=projects.findIndex(project=>project.id===activeId);if(index<0)return{};projects[index].loraSelections=projects[index].loraSelections||{};projects[index].loraSelections[ctx]=projects[index].loraSelections[ctx]||{};const settings=projects[index].loraSelections[ctx];let changed=false;loadLib().forEach((item,order)=>{if(!settings[item.id]){settings[item.id]={enabled:defaultEnabled(ctx,item.id),strength:item.defaultStrength,order};changed=true;}});return settings;}
+function setSelection(ctx,id,patch){const projects=getProjectList(),activeId=typeof getActiveProjectId==='function'?getActiveProjectId():null,index=projects.findIndex(project=>project.id===activeId);if(index<0)return;projects[index].loraSelections=projects[index].loraSelections||{};projects[index].loraSelections[ctx]=projects[index].loraSelections[ctx]||{};projects[index].loraSelections[ctx][id]={...(projects[index].loraSelections[ctx][id]||defaultSel(id)),...patch};saveProjectList(projects);}
 function ordered(ctx){const settings=projectContext(ctx);return loadLib().filter(item=>item.active!==false).map((item,index)=>({item,sel:settings[item.id]||{enabled:false,strength:item.defaultStrength,order:index},libraryOrder:index})).sort((a,b)=>(Number(a.sel.order)-Number(b.sel.order))||(a.libraryOrder-b.libraryOrder));}
 function selected(ctx){return ordered(ctx).filter(entry=>entry.sel.enabled);}
 function ctxFromWorkflow(name){return name==='i2v'?'i2v':name==='ref2va_03'?'ref:03':name==='ref2va_04'?'ref:04':name==='ref2va_05'?'ref:05':name==='ref2va_06_fast'?'ref:fast':name==='ref2va_06_stable'?'ref:stable':null;}
@@ -474,6 +476,7 @@ async function importSettings(file){
  try{
   if(normalized.loraRegistry)localStorage.setItem(LIB_KEY,JSON.stringify(normalized.loraRegistry.map(normalizeItem)));
   if(normalized.projects){
+   try{compactSelections(normalized.projects,normalized.loraRegistry?normalized.loraRegistry.map(normalizeItem):loadLib());}catch(e){console.warn('[H3] compact import',e);}
    localStorage.setItem(PROJECTS_KEY,JSON.stringify(normalized.projects));
    const active=normalized.activeProjectId&&normalized.projects.some(project=>project.id===normalized.activeProjectId)?normalized.activeProjectId:(normalized.projects[0]?.id||null);
    if(active)localStorage.setItem(ACTIVE_PROJECT_KEY,active);
@@ -510,6 +513,6 @@ window.h3ApplyLoraSnapshot=(workflow,snapshot)=>applyLoraList(workflow,Array.isA
 async function assertInstalledForPrompt(baseFetch,input,init){if(!init?.body||typeof init.body!=='string')return;let body;try{body=JSON.parse(init.body);}catch{return;}const workflow=body?.prompt;if(!workflow)return;const nodes=Object.values(workflow).filter(node=>node?.class_type==='LoraLoaderModelOnly'),library=loadLib(),loras=nodes.map(node=>{const filename=node.inputs?.lora_name,item=library.find(value=>value.filename===filename);return{filename,name:item?.name||autoName(filename),strength:Number(node.inputs?.strength_model)};});const extra=body.extra_data?.h3_mobile;if(extra)extra.loras=loras;const required=[...new Set(loras.map(item=>item.filename).filter(Boolean))];if(!required.length){init.body=JSON.stringify(body);return;}const response=await baseFetch(apiUrl('/h3-mobile/api/loras/files'));if(!response.ok)return;const data=await response.json(),installed=new Set((data.files||[]).filter(item=>item.status==='installed'&&Number(item.size??item.downloaded)>0).map(item=>item.filename)),missing=required.filter(name=>!installed.has(name));if(missing.length)throw new Error('LoRA未導入: '+missing.join(', '));init.body=JSON.stringify(body);}
 function wrapFetch(){const baseFetch=window.fetch.bind(window);window.fetch=async(input,init)=>{const url=typeof input==='string'?input:(input&&input.url)||'',match=url.match(/\/h3-mobile\/api\/workflow\/([^/?#]+)/);if(match){const response=await baseFetch(input,init);if(!response.ok)return response;try{const workflow=applyLoras(await response.clone().json(),decodeURIComponent(match[1]));return new Response(JSON.stringify(workflow),{status:response.status,statusText:response.statusText,headers:response.headers});}catch{return response;}}if(/\/prompt(?:[?#]|$)/.test(url))await assertInstalledForPrompt(baseFetch,input,init);return baseFetch(input,init);};}
 function bindChanges(){qa('[data-mode],[data-variant],[data-batch-mode],[data-batch-variant]').forEach(button=>button.addEventListener('click',()=>setTimeout(renderQuick,0)));q('.nav[data-target="lora"]')?.addEventListener('click',renderManager);window.addEventListener('h3:project-changed',()=>renderQuick());}
-function init(){seed();style();injectQuick();injectLoraPage();renderQuick();renderManager();bindChanges();wrapFetch();}
+function init(){compactStored();try{seed();}catch(e){console.warn('[H3] seed',e);}style();injectQuick();injectLoraPage();renderQuick();renderManager();bindChanges();wrapFetch();}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
