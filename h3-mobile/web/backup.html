@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>H3 Mobile 設定バックアップ</title>
+<style>
+body{margin:0;padding:16px;background:#0f131b;color:#e8ecf3;font:15px/1.6 -apple-system,BlinkMacSystemFont,sans-serif}
+h1{font-size:20px;margin:0 0 6px}
+.card{background:#171d29;border:1px solid #2b3240;border-radius:12px;padding:14px;margin:12px 0}
+button{display:block;width:100%;padding:14px;margin:8px 0;border:0;border-radius:10px;background:#4f6df5;color:#fff;font-size:16px;font-weight:600}
+button.sub{background:#2b3240}
+textarea{width:100%;box-sizing:border-box;height:160px;background:#0b0e14;color:#cfe3ff;border:1px solid #2b3240;border-radius:8px;padding:8px;font:12px/1.4 ui-monospace,monospace}
+.small{font-size:13px;color:#9aa6bd}
+.ok{color:#7ee2a0}.ng{color:#ff9a9a}
+table{width:100%;font-size:13px;border-collapse:collapse}td{padding:3px 4px;border-top:1px solid #2b3240}
+</style>
+</head>
+<body>
+<h1>H3 Mobile 設定バックアップ</h1>
+<div class="small">このブラウザ（このURL）に保存されている案件・LoRA登録・生成設定を、アプリ本体を使わずに書き出します。このページは何も送信しません。</div>
+<div class="small" id="origin"></div>
+
+<div class="card">
+<b>① 全設定バックアップ（推奨）</b>
+<div class="small">アプリの「復元」でそのまま読み込める形式です。画像・LoRA本体・認証情報は含みません。</div>
+<button id="dl">JSONファイルとして保存</button>
+<button id="share" class="sub">共有 / ファイルに保存（iPhone向け）</button>
+<button id="copy" class="sub">JSONをコピー</button>
+<textarea id="out" readonly></textarea>
+<div id="msg" class="small"></div>
+</div>
+
+<div class="card">
+<b>② 念のための生データ</b>
+<div class="small">h3 で始まる保存項目を、そのまま書き出します（課金・キー類は除外）。</div>
+<button id="rawdl" class="sub">生データを保存</button>
+<button id="rawcopy" class="sub">生データをコピー</button>
+<table id="keys"></table>
+</div>
+
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const BACKUP_SCHEMA='h3-mobile-settings',BACKUP_VERSION=3;
+const SKIP=/billing|secret|token|apikey|api_key|password/i;
+function get(k,fb){try{const v=JSON.parse(localStorage.getItem(k)||'null');return v==null?fb:v;}catch(e){return fb;}}
+function blank(){return{image0:null,ref0:null,ref1:null,ref2:null,ref3:null};}
+function sanitize(p){
+ const c={...p};c.images=blank();
+ if(c.batch&&typeof c.batch==='object')c.batch={...c.batch,i2vFiles:[],refSets:[{files:[null,null,null,null]}]};
+ return c;
+}
+function build(){
+ const lib=get('h3MobileLoraLibraryV1',[]),projects=get('h3MobileProjects',[]);
+ const list=Array.isArray(lib)?lib.filter(Boolean):[];
+ return{
+  schema:BACKUP_SCHEMA,version:BACKUP_VERSION,exportedAt:new Date().toISOString(),
+  activeProjectId:localStorage.getItem('h3MobileActiveProjectId')||null,
+  projects:(Array.isArray(projects)?projects:[]).filter(Boolean).map(sanitize),
+  loraRegistry:list.map(i=>({id:i.id,name:i.name,filename:i.filename,originalFilename:i.originalFilename||i.filename,sha256:i.sha256||'',defaultStrength:Number.isFinite(Number(i.defaultStrength))?Number(i.defaultStrength):1,active:i.active!==false})),
+  generationPresets:get('h3MobileGenerationPresetsV2',null)
+ };
+}
+function raw(){
+ const o={};
+ for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(/^h3/i.test(k)&&!SKIP.test(k))o[k]=localStorage.getItem(k);}
+ return{kind:'h3-mobile-localstorage-raw',exportedAt:new Date().toISOString(),origin:location.origin,data:o};
+}
+function text(o){return JSON.stringify(o,null,2);}
+function msg(t,ok){const m=$('msg');m.textContent=t;m.className='small '+(ok?'ok':'ng');}
+function saveFile(name,str){
+ const blob=new Blob([str],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+ a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),4000);
+}
+async function copy(str){
+ try{await navigator.clipboard.writeText(str);return true;}catch(e){}
+ const t=$('out');t.value=str;t.focus();t.select();try{return document.execCommand('copy');}catch(e){return false;}
+}
+const stamp=()=>new Date().toISOString().slice(0,10);
+$('origin').textContent='対象: '+location.origin;
+let main;
+try{main=build();}catch(e){main=null;msg('読み取りに失敗: '+e.message,false);}
+if(main){
+ $('out').value=text(main);
+ msg('LoRA登録 '+main.loraRegistry.length+' 件 / 案件 '+main.projects.length+' 件を読み取りました。',main.loraRegistry.length>0||main.projects.length>0);
+}
+$('dl').onclick=()=>{if(!main)return;saveFile('h3-mobile-settings-backup-'+stamp()+'.json',text(main));msg('保存を実行しました。保存されない場合は「共有」か「コピー」を使ってください。',true);};
+$('share').onclick=async()=>{
+ if(!main)return;
+ const f=new File([text(main)],'h3-mobile-settings-backup-'+stamp()+'.json',{type:'application/json'});
+ try{
+  if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:'H3 Mobile backup'});msg('共有しました。',true);return;}
+  await navigator.share({title:'H3 Mobile backup',text:text(main)});msg('共有しました。',true);
+ }catch(e){msg('共有をキャンセル、または非対応です: '+(e&&e.name||''),false);}
+};
+$('copy').onclick=async()=>{if(!main)return;msg((await copy(text(main)))?'コピーしました。メモ等に貼り付けて保管してください。':'コピーできませんでした。枠内を長押しして全選択→コピーしてください。',true);};
+$('rawdl').onclick=()=>{saveFile('h3-mobile-raw-'+stamp()+'.json',text(raw()));msg('生データを保存しました。',true);};
+$('rawcopy').onclick=async()=>{msg((await copy(text(raw())))?'生データをコピーしました。':'コピーできませんでした。',true);};
+const tb=$('keys');
+for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(/^h3/i.test(k)&&!SKIP.test(k)){const r=tb.insertRow();r.insertCell().textContent=k;r.insertCell().textContent=((localStorage.getItem(k)||'').length)+' 文字';}}
+})();
+</script>
+</body>
+</html>
