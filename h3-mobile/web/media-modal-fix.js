@@ -39,6 +39,7 @@ window.openMedia=function(view,isVideo){
     if(body) body.innerHTML=isVideo?`<video controls autoplay playsinline src="${view}"></video>`:`<img src="${view}" alt="output">`;
     document.getElementById('mediaModal')?.classList.remove('hidden');
   }
+  { const mm=document.getElementById('mediaModal'); if(mm) mm.style.pointerEvents=''; }
   showFs(true);
   pauseHistoryVideos();
 };
