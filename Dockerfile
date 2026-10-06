@@ -54,6 +54,46 @@ assert version("sageattention") == "2.2.0", version("sageattention")
 print("Build validation OK:", torch.__version__, torch.version.cuda, version("sageattention"))
 PY
 
+# Upgrade the image-managed ComfyUI core baked at /opt/comfyui-baked from
+# v0.30.0 to v0.38.0. Verified by hand on a live RTX A6000 Pod (2026-10-06):
+# torch / torchvision / SageAttention stayed pinned, every custom node imported,
+# and the I2V Turbo 4-step + SageAttention workflow rendered correctly.
+# The minimax_h3_video_vae_int8_convrot VAE used by i2v.json needs ComfyUI >= 0.36.
+# RunPod's /start.sh compares .runpod-bundle-version, so bumping COMFYUI_VERSION
+# there makes existing Pods re-sync the core from this baked copy on next boot
+# (venv, models, user data and custom nodes are preserved by that sync).
+ARG COMFYUI_TAG=v0.38.0
+RUN set -eux; \
+    cd /opt/comfyui-baked; \
+    test -d .git; \
+    test -f .runpod-bundle-version; \
+    git fetch --depth 1 origin tag "$COMFYUI_TAG"; \
+    git checkout --force "$COMFYUI_TAG"; \
+    PIP_CONSTRAINT=/opt/comfyui-runtime-constraints.txt python3.12 -m pip install --no-cache-dir -r requirements.txt; \
+    sed -i "s/^COMFYUI_VERSION=.*/COMFYUI_VERSION=${COMFYUI_TAG}/" .runpod-bundle-version; \
+    grep -qx "COMFYUI_VERSION=${COMFYUI_TAG}" .runpod-bundle-version; \
+    grep -rqs --include='*.py' --exclude-dir=custom_nodes MiniMaxH3ImageToVideo /opt/comfyui-baked
+
+# Build-time guard: the core upgrade must not move the pinned runtime.
+RUN cd /opt/comfyui-baked \
+    && EXPECTED_COMFYUI="${COMFYUI_TAG#v}" python3.12 - <<'PY'
+import os
+import torch
+import torchvision
+from importlib.metadata import version
+
+assert torch.__version__ == "2.10.0+cu130", torch.__version__
+assert torch.version.cuda == "13.0", torch.version.cuda
+assert torchvision.__version__ == "0.25.0+cu130", torchvision.__version__
+assert version("sageattention") == "2.2.0", version("sageattention")
+
+ns = {}
+with open("/opt/comfyui-baked/comfyui_version.py") as f:
+    exec(f.read(), ns)
+assert ns["__version__"] == os.environ["EXPECTED_COMFYUI"], ns["__version__"]
+print("ComfyUI core build validation OK:", ns["__version__"], torch.__version__, torchvision.__version__)
+PY
+
 # Pin the H3-specific custom nodes that were verified on the working A6000 Pod.
 # KJNodes is intentionally kept from the digest-pinned RunPod base image. That
 # exact baked copy is already reproducible via RUNPOD_BASE, while the historical

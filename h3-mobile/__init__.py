@@ -46,10 +46,11 @@ MODEL_SPECS = {
     "fl2va": {"label": "MiniMax H3 FL2VA INT8", "url": f"{HF_H3}/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors", "path": _resolve_diffusion_model_path("minimax_h3_fl2va_pruned_int8_convrot.safetensors")},
     "qwen": {"label": "Qwen3-VL 32B MiniMax H3 NVFP4 AWQ", "url": f"{HF_H3}/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", "path": MODELS_DIR / "text_encoders" / "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"},
     "video_vae": {"label": "MiniMax H3 video VAE FP16", "url": f"{HF_H3}/vae/minimax_h3_video_vae_fp16.safetensors", "path": MODELS_DIR / "vae" / "minimax_h3_video_vae_fp16.safetensors"},
+    "video_vae_int8": {"label": "MiniMax H3 video VAE INT8", "url": f"{HF_H3}/vae/minimax_h3_video_vae_int8_convrot.safetensors", "path": MODELS_DIR / "vae" / "minimax_h3_video_vae_int8_convrot.safetensors"},
     "audio_vae": {"label": "MiniMax H3 audio VAE FP32", "url": f"{HF_H3}/vae/minimax_h3_audio_vae_fp32.safetensors", "path": MODELS_DIR / "vae" / "minimax_h3_audio_vae_fp32.safetensors"},
     "turbo_lora": {"label": "MiniMax H3 Turbo LoRA v4 step600 EMA", "url": "https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora/resolve/main/minimax_h3_turbo_v4_step600_ema.safetensors", "path": MODELS_DIR / "loras" / "minimax_h3_turbo_v4_step600_ema.safetensors"},
 }
-MODE_SETS = {"ref2va": ["ref2va", "qwen", "video_vae", "audio_vae", "turbo_lora"], "i2v": ["fl2va", "qwen", "video_vae", "audio_vae", "turbo_lora"]}
+MODE_SETS = {"ref2va": ["ref2va", "qwen", "video_vae", "audio_vae", "turbo_lora"], "i2v": ["fl2va", "qwen", "video_vae_int8", "audio_vae", "turbo_lora"]}
 _download_tasks = {}
 _verified_files = {}
 _download_state = {

@@ -52,3 +52,10 @@ Ref2VA execution should show Sol-Attn patch activation. I2V should run without `
 ## Failed-host signature
 
 A host that cannot run the target runtime will print `[H3][HOST_INCOMPATIBLE]` before any cu130 installation. Do not download the H3 model bundle on that Pod; terminate it and redeploy to get another host.
+
+## ComfyUI core and I2V VAE (updated 2026-10-06)
+
+- ComfyUI core: **v0.38.0** (was v0.30.0). Baked in the image at `/opt/comfyui-baked`; `.runpod-bundle-version` is bumped so existing Pods re-sync the core on boot.
+- Verified on a live A6000 Pod: torch 2.10.0+cu130 / torchvision 0.25.0+cu130 / SageAttention 2.2.0 unchanged; Turbo 4-step + SageAttention I2V renders correctly.
+- I2V video VAE: `minimax_h3_video_vae_int8_convrot.safetensors` (INT8, needs ComfyUI >= 0.36). Same-seed comparison against FP16 VAE: PSNR about 47 dB, VAE 4,965 MB -> 2,677 MB, peak GPU memory about 2.3 GB lower. Ref2VA workflows still use the FP16 VAE (not re-tested).
+- Previous production image is archived as `h3-cu130-before-comfy038-20261006` before the first build with this change.
