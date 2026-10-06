@@ -5,8 +5,8 @@
     if(modal && !modal.classList.contains('hidden') && !modal.querySelector('video,img,canvas')){
       modal.classList.add('hidden');
     }
-    document.querySelectorAll('.media-modal.hidden').forEach(el=>{
-      el.style.pointerEvents='none';
+    document.querySelectorAll('.media-modal').forEach(el=>{
+      el.style.pointerEvents='';
     });
   }
   async function h3Generate(ev){
