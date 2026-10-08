@@ -1,6 +1,6 @@
 #!/bin/bash
 # H3 Veda テスト版を Pod に入れる(または --remove で外す)。
-# 本番のアプリ(ComfyUI-H3-Mobile)と i2v.json は変更しない。入れるのは新しいフォルダ１つだけ。
+# 本番のアプリ(ComfyUI-H3-Mobile)と i2v.json は変更しない。入れるのは新しいフォルダ1つだけ。
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 C=${H3_COMFY_DIR:-/workspace/runpod-slim/ComfyUI}
