@@ -1,0 +1,7 @@
+# H3 Veda test image: the production image + a background first-boot setup that installs
+# ComfyUI v0.38.0 (if needed), Veda (60bfae6) and its predictor model. Production (main) is not touched.
+FROM ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-cu130-latest
+COPY veda-image/veda-boot-setup.sh /opt/h3-veda/veda-boot-setup.sh
+COPY veda-image/run-h3-veda.sh /run-h3-veda.sh
+RUN chmod +x /opt/h3-veda/veda-boot-setup.sh /run-h3-veda.sh && bash -n /opt/h3-veda/veda-boot-setup.sh && bash -n /run-h3-veda.sh
+ENTRYPOINT ["/run-h3-veda.sh"]
