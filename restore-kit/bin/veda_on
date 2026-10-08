@@ -1,0 +1,6 @@
+#!/bin/bash
+# Switch H3 Mobile I2V to the Veda (90%/90%) workflow. Only copies i2v.json; no restart needed.
+set -e
+D=/workspace/runpod-slim/ComfyUI/custom_nodes/ComfyUI-H3-Mobile/api_workflows
+cp "$D/i2v.json.veda90" "$D/i2v.json.tmp" && mv "$D/i2v.json.tmp" "$D/i2v.json"
+/workspace/bin/veda_status

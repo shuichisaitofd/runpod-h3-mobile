@@ -1,0 +1,18 @@
+#!/bin/bash
+# Show which H3 Mobile I2V workflow is active, reading the Veda sparsity from i2v.json itself.
+D=/workspace/runpod-slim/ComfyUI/custom_nodes/ComfyUI-H3-Mobile/api_workflows
+cur=$(sha256sum "$D/i2v.json" | cut -d' ' -f1)
+off=$(sha256sum /workspace/runpod-slim/backup_h3mobile_20261008/api_workflows/i2v.json | cut -d' ' -f1)
+veda=$(python3 -I -c '
+import json, sys
+nodes = [n["inputs"] for n in json.load(open(sys.argv[1])).values() if n.get("class_type") == "VedaSparseAttention"]
+if nodes:
+    g, r = nodes[0]["generated_sparsity"], nodes[0]["reference_sparsity"]
+    print(f"Veda {g}" if g == r else f"Veda 生成{g} 参照{r}")
+' "$D/i2v.json")
+if [ -n "$veda" ]; then state="$veda"; node="あり"
+elif [ "$cur" = "$off" ]; then state="Vedaなし (元のまま, veda_off)"; node="なし"
+else state="不明 (Vedaなし、元とも違う内容)"; node="なし"; fi
+echo "状態: $state"
+echo "i2v.json sha256: $cur"
+echo "Vedaのノード: $node"

@@ -1,0 +1,23 @@
+#!/bin/bash
+# Switch H3 Mobile I2V to Veda with any sparsity: veda_pct NN (1-99). Builds i2v.json.vedaNN from i2v.json.veda90
+# if it does not exist yet, then copies it over i2v.json. No restart needed.
+set -e
+D=/workspace/runpod-slim/ComfyUI/custom_nodes/ComfyUI-H3-Mobile/api_workflows
+if ! [[ "$1" =~ ^[0-9]+$ ]] || [ "$1" -lt 1 ] || [ "$1" -gt 99 ] || [ $# -ne 1 ]; then
+    echo "使い方: /workspace/bin/veda_pct 数字   (数字は1〜99。例: /workspace/bin/veda_pct 70)"
+    exit 1
+fi
+N=$((10#$1))
+F="$D/i2v.json.veda$N"
+if [ ! -f "$F" ]; then
+    python3 -I - "$D/i2v.json.veda90" "$F" "$N" <<'PY'
+import json, sys
+src, dst, n = sys.argv[1], sys.argv[2], sys.argv[3]
+g = json.load(open(src))
+g["105:200"]["inputs"]["generated_sparsity"] = f"{n}%"
+g["105:200"]["inputs"]["reference_sparsity"] = f"{n}%"
+json.dump(g, open(dst, "w"), ensure_ascii=False, indent=2)
+PY
+fi
+cp "$F" "$D/i2v.json.tmp" && mv "$D/i2v.json.tmp" "$D/i2v.json"
+/workspace/bin/veda_status
