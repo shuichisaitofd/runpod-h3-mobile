@@ -10,8 +10,8 @@ INIT = (ROOT / "h3-mobile" / "__init__.py").read_text()
 # Header and frontend assets must remain wired into the shipped UI.
 assert 'id="runtime"' in INDEX
 assert 'id="billing"' in INDEX
-assert 'src="pod-runtime.js"' in INDEX
-assert 'src="pod-billing.js"' in INDEX
+assert 'src="pod-runtime.js' in INDEX
+assert 'src="pod-billing.js' in INDEX
 
 # Runtime clock must come from server-side container uptime.
 assert "/h3-mobile/api/runtime" in INIT

@@ -4,7 +4,7 @@
 const LIB_KEY='h3MobileLoraLibraryV1';
 const LEGACY_SEL_KEY='h3MobileLoraSelectionsV1';
 const CATALOG_VERSION_KEY='h3MobileLoraCatalogVersion';
-const CATALOG_VERSION='default-21-v1';
+const CATALOG_VERSION='default-22-v1';
 const PROJECTS_KEY='h3MobileProjects';
 const ACTIVE_PROJECT_KEY='h3MobileActiveProjectId';
 const PRESET_KEY='h3MobileGenerationPresetsV2';
@@ -15,7 +15,7 @@ const CONTEXTS=['i2v','ref:03','ref:04','ref:05','ref:fast','ref:stable'];
 // *trusted* digest and is the only value ever sent to the server as an expected
 // hash. A hash the browser learned from its own past upload is never trusted.
 const DEFAULT_LORA_CATALOG=Object.freeze([
- {id:'default-aio-v25',name:'AIO v2.5',filename:'AIO_v2.5.safetensors'},
+ {id:'default-aio-v25',name:'AIO v2.5',filename:'HMNSFW-AIO-V2.5.safetensors'},
  {id:'default-bj-v3',name:'BJ v3',filename:'BJ_v3.safetensors'},
  {id:'default-finger-bean-v1',name:'Finger BEAN v1',filename:'Finger_BEAN_v1.safetensors'},
  {id:'default-hm-cumshot-v2',name:'HM Cumshot V2',filename:'HMCumshot_V2.safetensors'},
@@ -35,10 +35,12 @@ const DEFAULT_LORA_CATALOG=Object.freeze([
  {id:'default-deepthroat-ultimate-v1',name:'Deepthroat Ultimate v1',filename:'Deepthroat_Ultimate_v1.safetensors'},
  {id:'default-finger-insert-3323149',name:'Finger Insert',filename:'Finger_Insert_3323149.safetensors'},
  {id:'default-jerkoff-h3',name:'JerkOff H3',filename:'JerkOff_H3.safetensors'},
- {id:'default-m3-unlocked-v2',name:'M3 Unlocked v2',filename:'M3_Unlocked_v2.safetensors'}
+ {id:'default-m3-unlocked-v2',name:'M3 Unlocked v2',filename:'M3_Unlocked_v2.safetensors'},
+ {id:'default-breastplay-jiggle-h3-v2',name:'Breast Play Jiggle H3 v2',filename:'breastplayjiggle_h3_v2.safetensors'},
+ {id:'default-minimax-timefreeze',name:'MiniMax Time Freeze',filename:'minimax-timefreeze_000003020.safetensors'}
 ]);
 const LEGACY_DEFAULT_FILENAMES=new Set([
- 'HMNSFW-AIO-V2.5.safetensors',
+ 'AIO_v2.5.safetensors',
  'MM-H3 - Blowjob v3.safetensors',
  'BEANFLK_H3_V1.safetensors',
  'HMMasturbationV1.safetensors',
