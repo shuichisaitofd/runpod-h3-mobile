@@ -42,4 +42,7 @@ jobs:
           file: Dockerfile.veda
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-veda-test
+          pull: true
+          tags: |
+            ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-veda-test
+            ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-veda-test-${{ github.sha }}
