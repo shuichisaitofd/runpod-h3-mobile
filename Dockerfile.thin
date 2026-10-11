@@ -1,0 +1,7 @@
+# Thin rebuild of the H3 Mobile image: reuses the already-built production image (saved once as
+# h3-cu130-thin-base) and only replaces the H3 Mobile server code + web files.
+# Used because the full Dockerfile can no longer be built: the upstream repo
+# Saganaki22/ComfyUI-sol-attn is gone (git clone asks for a login), which breaks the full build.
+FROM ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-cu130-thin-base
+COPY h3-mobile/lora_routes.py /opt/comfyui-baked/custom_nodes/ComfyUI-H3-Mobile/lora_routes.py
+COPY h3-mobile/web/ /opt/comfyui-baked/custom_nodes/ComfyUI-H3-Mobile/web/

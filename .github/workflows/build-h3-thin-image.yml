@@ -1,0 +1,67 @@
+name: Build H3 Mobile Thin Image
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile.thin
+      - h3-mobile/lora_routes.py
+      - h3-mobile/web/**
+      - .github/workflows/build-h3-thin-image.yml
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: h3-thin-image
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Ref2VA 06 features
+        run: python3 tests/validate_ref2va06.py
+
+      - name: Validate runtime and billing features
+        run: python3 tests/validate_runtime_billing.py
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Save the current production image once as the thin base
+        run: |
+          set -euo pipefail
+          OWNER="${{ github.repository_owner }}"
+          SRC="ghcr.io/${OWNER}/runpod-h3-mobile:h3-cu130-latest"
+          BASE="ghcr.io/${OWNER}/runpod-h3-mobile:h3-cu130-thin-base"
+          if docker buildx imagetools inspect "$BASE" >/dev/null 2>&1; then
+            echo "Thin base already exists; not overwriting $BASE"
+          else
+            echo "Saving $SRC -> $BASE"
+            docker buildx imagetools create --tag "$BASE" "$SRC"
+          fi
+          docker buildx imagetools inspect "$BASE"
+
+      - name: Build and push thin image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.thin
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/runpod-h3-mobile:h3-cu130-latest
+            ghcr.io/${{ github.repository_owner }}/runpod-h3-mobile:h3-cu130-thin-${{ github.sha }}
