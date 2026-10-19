@@ -4,7 +4,7 @@
 const LIB_KEY='h3MobileLoraLibraryV1';
 const LEGACY_SEL_KEY='h3MobileLoraSelectionsV1';
 const CATALOG_VERSION_KEY='h3MobileLoraCatalogVersion';
-const CATALOG_VERSION='default-22-v1';
+const CATALOG_VERSION='default-23-v1';
 const PROJECTS_KEY='h3MobileProjects';
 const ACTIVE_PROJECT_KEY='h3MobileActiveProjectId';
 const PRESET_KEY='h3MobileGenerationPresetsV2';
@@ -37,7 +37,8 @@ const DEFAULT_LORA_CATALOG=Object.freeze([
  {id:'default-jerkoff-h3',name:'JerkOff H3',filename:'JerkOff_H3.safetensors'},
  {id:'default-m3-unlocked-v2',name:'M3 Unlocked v2',filename:'M3_Unlocked_v2.safetensors'},
  {id:'default-breastplay-jiggle-h3-v2',name:'Breast Play Jiggle H3 v2',filename:'breastplayjiggle_h3_v2.safetensors'},
- {id:'default-minimax-timefreeze',name:'MiniMax Time Freeze',filename:'minimax-timefreeze_000003020.safetensors'}
+ {id:'default-minimax-timefreeze',name:'MiniMax Time Freeze',filename:'minimax-timefreeze_000003020.safetensors'},
+ {id:'default-cxy-kiss-h3-v02',name:'CXY Kiss H3 v02',filename:'cxy_kiss_lora_h3_v02_step1200.safetensors'}
 ]);
 const LEGACY_DEFAULT_FILENAMES=new Set([
  'AIO_v2.5.safetensors',
