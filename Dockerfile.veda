@@ -1,6 +1,6 @@
 # H3 Veda test image: the production image + a background first-boot setup that installs
 # ComfyUI v0.38.0 (if needed), Veda (60bfae6) and its predictor model. Production (main) is not touched.
-# lora_routes.py below is the veda branch's own copy (adds MysticXXX_MMH3-V5 for the veda side only).
+# lora_routes.py below is the veda branch's own copy (adds MysticXXX_MMH3-V5 and cxy_kiss_v3 for the veda side only).
 FROM ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-cu130-latest
 COPY h3-mobile/lora_routes.py /opt/comfyui-baked/custom_nodes/ComfyUI-H3-Mobile/lora_routes.py
 COPY veda-image/veda-boot-setup.sh /opt/h3-veda/veda-boot-setup.sh

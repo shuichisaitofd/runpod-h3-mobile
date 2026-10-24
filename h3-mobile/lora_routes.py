@@ -45,6 +45,7 @@ MANAGED_LORA_SPECS = {
     "minimax-timefreeze_000003020.safetensors": "838bd5aa8428047ff5055a6ee82991ec92b2e2bc3575ea20d7cbb4f415606ae3",
     "cxy_kiss_lora_h3_v02_step1200.safetensors": "03f9c53550182405679f0ada588eb31362358bb393e9455153c4db333ddc3136",
     "MysticXXX_MMH3-V5.safetensors": "4168917daeb6e570a004bc6994f73d091b9f3e887f7e946bd00c0f2f7573e5f3",
+    "cxy_kiss_v3_000002200.safetensors": "a3a754ccbd217efd2d872bf3013050635cf3423e11f10e53220fbf50d0244061",
 }
 
 # User-supplied LoRAs remain file-upload only; there is no user URL/Civitai
