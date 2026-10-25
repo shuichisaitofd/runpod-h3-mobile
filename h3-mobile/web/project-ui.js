@@ -1,5 +1,16 @@
+const FAV_FILTER_KEY='h3MobileProjectFavOnly';
+function favOnly(){try{return localStorage.getItem(FAV_FILTER_KEY)==='1';}catch(e){return false;}}
+function setFavOnly(v){try{localStorage.setItem(FAV_FILTER_KEY,v?'1':'0');}catch(e){}}
 function visibleProjects(){
-  return getProjects().map(p=>({...p,archived:!!p.archived})).filter(p=>!p.archived);
+  const list=getProjects().map(p=>({...p,archived:!!p.archived})).filter(p=>!p.archived);
+  if(!favOnly())return list;
+  const aid=getActiveProjectId();
+  return list.filter(p=>p.favorite||p.id===aid);
+}
+function toggleFavorite(id){
+  const projects=getProjects();
+  const p=projects.find(x=>x.id===id);if(!p)return;
+  p.favorite=!p.favorite;saveProjects(projects);renderProjectTabs();
 }
 function isProjectPage(){
   return !!document.querySelector('.page[data-page="projects"].active');
@@ -14,9 +25,13 @@ function renderProjectSettings(){
   if(!activeRoot||!archiveRoot)return;
   const projects=getProjects().map(p=>({...p,archived:!!p.archived}));
   const activeId=getActiveProjectId();
-  const vis=projects.filter(p=>!p.archived), arc=projects.filter(p=>p.archived);
-  activeRoot.innerHTML=vis.length?vis.map(p=>`<div class="model-item proj-row" data-proj-id="${p.id}" style="margin-bottom:8px"><div class="row" style="align-items:center"><span class="proj-drag-handle" data-proj-drag="${p.id}" aria-label="ドラッグして並べ替え" title="ドラッグして並べ替え">⠿</span><div class="model-name" style="flex:1">${p.name}${p.id===activeId?'（使用中）':''}</div></div><div class="row" style="flex-wrap:wrap;margin-top:8px"><button class="secondary compact" data-proj-use="${p.id}">使う</button><button class="secondary compact" data-proj-rename="${p.id}">改名</button><button class="secondary compact" data-proj-archive="${p.id}">アーカイブ</button></div></div>`).join(''):'<div class="small">表示中の案件はありません。</div>';
-  archiveRoot.innerHTML=arc.length?arc.map(p=>`<div class="model-item" style="margin-bottom:8px"><div class="row"><div class="model-name" style="flex:1">${p.name}</div><button class="secondary compact" data-proj-restore="${p.id}">表示に戻す</button><button class="secondary compact" data-proj-delete="${p.id}">削除</button></div></div>`).join(''):'<div class="small">アーカイブはありません。</div>';
+  const fo=favOnly();
+  const allVis=projects.filter(p=>!p.archived), arc=projects.filter(p=>p.archived);
+  const vis=fo?allVis.filter(p=>p.favorite):allVis;
+  const favBtn=$('#projectFavOnly');
+  if(favBtn){favBtn.textContent=fo?'⭐のみ表示中':'☆ すべて表示中';favBtn.classList.toggle('active',fo);}
+  activeRoot.innerHTML=vis.length?vis.map(p=>`<div class="model-item proj-row" data-proj-id="${p.id}" style="margin-bottom:8px"><div class="row" style="align-items:center">${fo?'':`<span class="proj-drag-handle" data-proj-drag="${p.id}" aria-label="ドラッグして並べ替え" title="ドラッグして並べ替え">⠿</span>`}<button class="proj-fav" data-proj-fav="${p.id}" aria-label="お気に入り">${p.favorite?'⭐':'☆'}</button><div class="model-name" style="flex:1">${p.name}${p.id===activeId?'（使用中）':''}</div></div><div class="row" style="flex-wrap:wrap;margin-top:8px"><button class="secondary compact" data-proj-use="${p.id}">使う</button><button class="secondary compact" data-proj-rename="${p.id}">改名</button><button class="secondary compact" data-proj-archive="${p.id}">アーカイブ</button></div></div>`).join(''):(fo?'<div class="small">⭐の案件はありません。☆をタップして追加できます。</div>':'<div class="small">表示中の案件はありません。</div>');
+  archiveRoot.innerHTML=arc.length?arc.map(p=>`<div class="model-item" style="margin-bottom:8px"><div class="row" style="align-items:center"><button class="proj-fav" data-proj-fav="${p.id}" aria-label="お気に入り">${p.favorite?'⭐':'☆'}</button><div class="model-name" style="flex:1">${p.name}</div><button class="secondary compact" data-proj-restore="${p.id}">表示に戻す</button><button class="secondary compact" data-proj-delete="${p.id}">削除</button></div></div>`).join(''):'<div class="small">アーカイブはありません。</div>';
 }
 function renderProjectTabs(){
   const select=$('#projectSelect');
@@ -156,6 +171,10 @@ if(projectPage&&!projectPage.dataset.bound){
     const archive=e.target.closest('[data-proj-archive]');
     const restore=e.target.closest('[data-proj-restore]');
     const del=e.target.closest('[data-proj-delete]');
+    const fav=e.target.closest('[data-proj-fav]');
+    const favFilter=e.target.closest('#projectFavOnly');
+    if(fav)toggleFavorite(fav.dataset.projFav);
+    if(favFilter){setFavOnly(!favOnly());renderProjectTabs();}
     if(use){switchProject(use.dataset.projUse);page('create');}
     if(rename)renameProject(rename.dataset.projRename);
     if(archive)archiveProject(archive.dataset.projArchive);
@@ -168,7 +187,7 @@ setupProjectDrag();
   if(!document.getElementById('h3ProjectUiCss')){
     const css=document.createElement('style');
     css.id='h3ProjectUiCss';
-    css.textContent='.project-tabs{align-items:center}.project-tabs select{width:auto!important;flex:1;min-width:0}#openProjects{position:relative;z-index:6;flex:0 0 auto;margin-top:0!important}#tabs .pill-wrap{display:none}.proj-drag-handle{cursor:grab;font-size:22px;line-height:1;padding:6px 12px;touch-action:none;user-select:none;-webkit-user-select:none;color:#98a2b3;flex:0 0 auto}.proj-row.dragging{opacity:.6;position:relative;z-index:10;background:#1b2130}';
+    css.textContent='.project-tabs{align-items:center}.project-tabs select{width:auto!important;flex:1;min-width:0}#openProjects{position:relative;z-index:6;flex:0 0 auto;margin-top:0!important}#tabs .pill-wrap{display:none}.proj-drag-handle{cursor:grab;font-size:22px;line-height:1;padding:6px 12px;touch-action:none;user-select:none;-webkit-user-select:none;color:#98a2b3;flex:0 0 auto}.proj-fav{background:none;border:0;font-size:24px;line-height:1;padding:6px 10px;flex:0 0 auto;color:#98a2b3;width:auto;margin:0;cursor:pointer}#projectFavOnly.active{border-color:#f5b301}.proj-row.dragging{opacity:.6;position:relative;z-index:10;background:#1b2130}';
     document.head.appendChild(css);
   }
   const btn=document.getElementById('openProjects');
