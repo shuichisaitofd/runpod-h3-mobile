@@ -46,6 +46,10 @@ MANAGED_LORA_SPECS = {
     "cxy_kiss_lora_h3_v02_step1200.safetensors": "03f9c53550182405679f0ada588eb31362358bb393e9455153c4db333ddc3136",
     "MysticXXX_MMH3-V5.safetensors": "4168917daeb6e570a004bc6994f73d091b9f3e887f7e946bd00c0f2f7573e5f3",
     "cxy_kiss_v3_000002200.safetensors": "a3a754ccbd217efd2d872bf3013050635cf3423e11f10e53220fbf50d0244061",
+    "h3-nipplesuck-step00007000-k3nk.safetensors": "a8561078f72c9ffdee3fd2b758374a2cc9e4f210a648cf71ed04acc6dfe11cf4",
+    "minimax-jav-voice.safetensors": "6198a007b4d7c8e6f8fabdcb9b3fabfd584f0dcc40a4ff04120373d195031fd1",
+    "HMPussyV2.safetensors": "7b9559077d8ac623d52b64b438d8ad60cb85b31b6fecf011aab238b70962a2ed",
+    "Rough.Sex.safetensors": "7c212b6f904db4f3841f74b08a1be334cbf9c68512d74c51138496ac15b095fd",
 }
 
 # User-supplied LoRAs remain file-upload only; there is no user URL/Civitai
