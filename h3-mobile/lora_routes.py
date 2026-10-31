@@ -418,6 +418,14 @@ EROS_MODELS = {
         "size": 20970401624,
         "auto": True,
     },
+    "v2": {
+        "label": "10Eros-Max 旧版 FL2VA INT8",
+        "filename": "10Eros_Max_H3_FL2VA-INT8-ConvRot.safetensors",
+        "url": "https://huggingface.co/DmitryDB/MiniMax-H3-10Eros-Max-Quants/resolve/main/FL2VA/10Eros_Max_H3_FL2VA-INT8-ConvRot.safetensors",
+        "sha256": "964a1e0ff49a393cf47bdb3c2bc39e57be02fc1b05fbbb2fddc3eae92dca322f",
+        "size": 22484074696,
+        "auto": False,
+    },
 }
 _DM_DIRS = [Path(path) for path in folder_paths.get_folder_paths("diffusion_models")]
 _EROS_TASKS = {}
