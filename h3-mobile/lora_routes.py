@@ -403,3 +403,109 @@ async def h3_mobile_lora_delete(request):
             except OSError as exc:
                 raise web.HTTPInternalServerError(text=str(exc))
     return web.json_response({"ok": True, "removed": removed, "filename": filename})
+
+
+# ---------------------------------------------------------------------------
+# 10Eros-Max INT8 (Veda test only). One fixed, SHA-pinned file is fetched from
+# the public Hugging Face repo into the diffusion_models folder.
+# ---------------------------------------------------------------------------
+EROS_FILENAME = "10Eros_Max_H3_FL2VA-INT8-ConvRot.safetensors"
+EROS_URL = (
+    "https://huggingface.co/DmitryDB/MiniMax-H3-10Eros-Max-Quants/resolve/main/"
+    "FL2VA/10Eros_Max_H3_FL2VA-INT8-ConvRot.safetensors"
+)
+EROS_SHA256 = "964a1e0ff49a393cf47bdb3c2bc39e57be02fc1b05fbbb2fddc3eae92dca322f"
+EROS_SIZE = 22484074696
+_DM_DIRS = [Path(path) for path in folder_paths.get_folder_paths("diffusion_models")]
+_EROS_TASK = None
+
+
+def _eros_installed_path():
+    for folder in _DM_DIRS:
+        candidate = folder / EROS_FILENAME
+        if candidate.is_file() and candidate.stat().st_size == EROS_SIZE:
+            return candidate
+    return None
+
+
+_EROS_STATE = {
+    "status": "installed" if _eros_installed_path() else "missing",
+    "downloaded": EROS_SIZE if _eros_installed_path() else 0,
+    "total": EROS_SIZE,
+    "error": None,
+}
+
+
+async def _eros_download() -> None:
+    global _EROS_TASK
+    state = _EROS_STATE
+    try:
+        if _eros_installed_path():
+            state.update(status="installed", downloaded=EROS_SIZE, error=None)
+            return
+        dest_dir = (
+            _DM_DIRS[0] if _DM_DIRS else Path(folder_paths.models_dir) / "diffusion_models"
+        )
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / EROS_FILENAME
+        part = dest_dir / (EROS_FILENAME + ".part")
+        existing = part.stat().st_size if part.is_file() else 0
+        headers = {"User-Agent": "h3-mobile-runpod"}
+        if existing:
+            headers["Range"] = f"bytes={existing}-"
+        state.update(status="downloading", downloaded=existing, error=None)
+        timeout = aiohttp.ClientTimeout(total=None, connect=60, sock_read=180)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(
+                EROS_URL, headers=headers, allow_redirects=True
+            ) as response:
+                if response.status == 416 and existing:
+                    pass
+                elif response.status not in (200, 206):
+                    raise RuntimeError(f"Hugging Face HTTP {response.status}")
+                else:
+                    if existing and response.status == 200:
+                        existing = 0
+                        state["downloaded"] = 0
+                    mode = "ab" if existing and response.status == 206 else "wb"
+                    with part.open(mode) as handle:
+                        async for chunk in response.content.iter_chunked(8 * 1024 * 1024):
+                            handle.write(chunk)
+                            state["downloaded"] += len(chunk)
+        if not part.is_file() or part.stat().st_size != EROS_SIZE:
+            raise RuntimeError("ダウンロードが途中で止まりました。もう一度ボタンを押してください")
+        state["status"] = "verifying"
+        actual = await asyncio.to_thread(_sha256, part)
+        if actual.lower() != EROS_SHA256:
+            part.unlink()
+            raise RuntimeError("ファイルの検証に失敗しました。もう一度ボタンを押してください")
+        os.replace(part, dest)
+        folder_paths.get_filename_list("diffusion_models")
+        state.update(status="installed", downloaded=EROS_SIZE, error=None)
+        print("[H3] 10Eros-Max INT8 installed")
+    except asyncio.CancelledError:
+        state["status"] = "paused"
+        raise
+    except Exception as exc:
+        state.update(status="error", error=str(exc))
+        print(f"[H3] 10Eros-Max download error: {exc}")
+    finally:
+        _EROS_TASK = None
+
+
+@routes.get("/h3-mobile/api/eros/status")
+async def h3_mobile_eros_status(request):
+    return web.json_response({"filename": EROS_FILENAME, **_EROS_STATE})
+
+
+@routes.post("/h3-mobile/api/eros/prepare")
+async def h3_mobile_eros_prepare(request):
+    global _EROS_TASK
+    if _eros_installed_path():
+        _EROS_STATE.update(status="installed", downloaded=EROS_SIZE, error=None)
+        return web.json_response({"ok": True, "started": False})
+    if _EROS_TASK and not _EROS_TASK.done():
+        return web.json_response({"ok": True, "started": False})
+    _EROS_STATE.update(status="queued", error=None)
+    _EROS_TASK = asyncio.create_task(_eros_download())
+    return web.json_response({"ok": True, "started": True})
