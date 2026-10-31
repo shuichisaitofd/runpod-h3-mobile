@@ -509,3 +509,29 @@ async def h3_mobile_eros_prepare(request):
     _EROS_STATE.update(status="queued", error=None)
     _EROS_TASK = asyncio.create_task(_eros_download())
     return web.json_response({"ok": True, "started": True})
+
+
+async def _auto_eros_on_startup(_app):
+    # Veda test image: this Pod only uses 10Eros-Max, so fetch it automatically.
+    global _EROS_TASK
+    if _eros_installed_path() or (_EROS_TASK and not _EROS_TASK.done()):
+        return
+    _EROS_STATE.update(status="queued", error=None)
+    _EROS_TASK = asyncio.create_task(_eros_download())
+
+
+if _auto_eros_on_startup not in PromptServer.instance.app.on_startup:
+    PromptServer.instance.app.on_startup.append(_auto_eros_on_startup)
+
+
+# Veda test image: the stock FL2VA model is not used, so it is not downloaded
+# (the I2V model set and the model list no longer include it).
+import sys as _sys
+
+_pkg = _sys.modules.get(__package__) if __package__ else None
+if _pkg is not None and hasattr(_pkg, "MODE_SETS") and hasattr(_pkg, "MODEL_SPECS"):
+    _pkg.MODE_SETS["i2v"] = [key for key in _pkg.MODE_SETS["i2v"] if key != "fl2va"]
+    _pkg.MODEL_SPECS.pop("fl2va", None)
+    print("[H3] Veda image: stock FL2VA model excluded (10Eros-Max only)")
+else:
+    print("[H3] Veda image: could not exclude stock FL2VA model")
