@@ -556,6 +556,58 @@ if _auto_eros_on_startup not in PromptServer.instance.app.on_startup:
     PromptServer.instance.app.on_startup.append(_auto_eros_on_startup)
 
 
+# Veda test image: progress of the background Veda setup (veda-image/veda-boot-setup.sh),
+# read from its status file and the size of the predictor download. Read-only.
+VEDA_STATUS_FILE = Path("/workspace/veda_boot_status.txt")
+VEDA_PREDICTOR_FILE = Path(
+    "/workspace/runpod-slim/ComfyUI/models/veda/minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors"
+)
+VEDA_PREDICTOR_SIZE = 275415648
+
+
+@routes.get("/h3-mobile/api/veda/status")
+async def h3_mobile_veda_status(request):
+    import time as _time
+
+    try:
+        raw = VEDA_STATUS_FILE.read_text(encoding="utf-8", errors="replace").strip()
+        since = max(0, int(_time.time() - VEDA_STATUS_FILE.stat().st_mtime))
+    except FileNotFoundError:
+        raw, since = "", None
+    except Exception as exc:
+        raw, since = f"FAILED: could not read status ({exc})", None
+    low = raw.lower()
+    downloaded, total = None, None
+    if not raw:
+        state, pct, step = "unknown", None, "Vedaの準備状況がまだありません（起動直後）"
+    elif raw.startswith("OK"):
+        state, pct, step = "ok", 100, "準備完了"
+    elif raw.startswith("FAILED"):
+        state, pct, step = "failed", None, "失敗: " + raw[len("FAILED:"):].strip()
+    elif raw.startswith("WAITING"):
+        state, pct, step = "working", 3, "ComfyUIの起動を待っています"
+    elif "upgrading comfyui" in low:
+        state, pct, step = "working", 15, "ComfyUIを新しい版に更新中"
+    elif "installing veda node" in low:
+        state, pct, step = "working", 40, "Vedaノードを入れています"
+    elif "predictor" in low:
+        part = VEDA_PREDICTOR_FILE.with_name(VEDA_PREDICTOR_FILE.name + ".part")
+        try:
+            downloaded = part.stat().st_size if part.exists() else (VEDA_PREDICTOR_FILE.stat().st_size if VEDA_PREDICTOR_FILE.exists() else 0)
+        except Exception:
+            downloaded = 0
+        total = VEDA_PREDICTOR_SIZE
+        frac = min(1.0, downloaded / total) if total else 0
+        state, pct, step = "working", 50 + int(frac * 40), "Vedaの予測モデルをダウンロード中"
+    elif "restarting comfyui" in low:
+        state, pct, step = "working", 95, "ComfyUIを再起動中"
+    else:
+        state, pct, step = "working", None, raw
+    return web.json_response(
+        {"state": state, "pct": pct, "step": step, "raw": raw, "since": since, "downloaded": downloaded, "total": total}
+    )
+
+
 # Veda test image: the stock FL2VA model is not used, so it is not downloaded
 # (the I2V model set and the model list no longer include it).
 import sys as _sys
