@@ -777,6 +777,19 @@ async def _long_wait(pid):
             return files
 
 
+def _long_keep_cache(base):
+    import copy as _copy
+    import nodes as _nodes
+    g = {}
+    for nid, n in base.items():
+        cls = _nodes.NODE_CLASS_MAPPINGS.get(n.get("class_type"))
+        if cls is None or getattr(cls, "OUTPUT_NODE", False):
+            continue
+        g[nid] = _copy.deepcopy(n)
+        g[nid].pop("_meta", None)
+    return g
+
+
 async def _long_worker(run_id, base, extra, clips, seconds, first_pid, prompt2=None):
     st = _LONG_RUNS[run_id]
     parts = []
@@ -793,7 +806,10 @@ async def _long_worker(run_id, base, extra, clips, seconds, first_pid, prompt2=N
             parts.append(files[0])
         st.update(stage="つないでいます", clip=clips)
         files_text = "\n".join(f"{p.get('subfolder', '')}/{p['filename']}".lstrip("/") for p in parts)
-        g = {"c": _long_node("H3LongConcat", files=files_text, filename_prefix=f"video/h3long/{run_id}_long")}
+        # Keep the I2V loader nodes in this prompt (they are not run): a prompt without them makes ComfyUI
+        # drop the cached models, and the next normal job would load them from disk again (+1~2 min).
+        g = _long_keep_cache(base)
+        g["c"] = _long_node("H3LongConcat", files=files_text, filename_prefix=f"video/h3long/{run_id}_long")
         pid = await _long_queue(g, _long_extra(extra, run_id, f"{clips}本つなぎ"), front=True)
         st["prompt_ids"].append(pid)
         final = await _long_wait(pid)
