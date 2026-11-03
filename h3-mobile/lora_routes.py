@@ -626,7 +626,7 @@ else:
 # ---------------------------------------------------------------------------
 # Long-video TEST image only (branch h3-longtest): chain I2V clips with
 # Herrgott's H3 Infinite Continuation v1.4 (Native Masked AV) and join them.
-#   POST /h3-mobile/api/long/run    body: {"prompt": <the page's I2V API graph>, "extra_data": {...}, "clips": 2}
+#   POST /h3-mobile/api/long/run    body: {"prompt": <the page's I2V API graph>, "extra_data": {...}, "clips": 2, "prompt2": "<optional prompt for clip 2+>"}
 #        -> queues clip 1 now and returns its prompt_id (the page tracks it like a normal job);
 #           the remaining clips and the join run in the background on the Pod.
 #   GET  /h3-mobile/api/long/status -> recent runs (stage, clip, error, final file)
@@ -688,7 +688,7 @@ def _long_node(cls_name, **given):
     return {"class_type": cls_name, "inputs": inputs}
 
 
-def _long_build(base, run_id, idx, clips, seconds):
+def _long_build(base, run_id, idx, clips, seconds, prompt2=None):
     import copy as _copy
     g = _copy.deepcopy(base)
     i2v = g["105:104"]["inputs"]
@@ -704,7 +704,7 @@ def _long_build(base, run_id, idx, clips, seconds):
         g["L_cond"] = _long_node("H3ContinuousContinueV14", clip=i2v["clip"], vae=i2v["vae"],
                                  previous_latent=["L_load", _long_slot("H3ContinuousLoadLatent", "latent")],
                                  handover=["L_load", _long_slot("H3ContinuousLoadLatent", "handover")],
-                                 prompt=i2v.get("prompt", ""), width=i2v["width"], height=i2v["height"],
+                                 prompt=(prompt2 or i2v.get("prompt", "")), width=i2v["width"], height=i2v["height"],
                                  duration=float(seconds), masked_context_frames="39",
                                  duration_mode="Net New Content", audio_tail_carryover="Full Previous Tail")
         head = ["L_cond", _long_slot("H3ContinuousContinueV14", "actual_head_context_frames")]
@@ -777,7 +777,7 @@ async def _long_wait(pid):
             return files
 
 
-async def _long_worker(run_id, base, extra, clips, seconds, first_pid):
+async def _long_worker(run_id, base, extra, clips, seconds, first_pid, prompt2=None):
     st = _LONG_RUNS[run_id]
     parts = []
     try:
@@ -785,7 +785,7 @@ async def _long_worker(run_id, base, extra, clips, seconds, first_pid):
         for idx in range(1, clips + 1):
             if idx > 1:
                 st.update(stage=f"{idx}/{clips}本目を生成中", clip=idx)
-                pid = await _long_queue(_long_build(base, run_id, idx, clips, seconds), _long_extra(extra, run_id, f"{idx}/{clips}"), front=True)
+                pid = await _long_queue(_long_build(base, run_id, idx, clips, seconds, prompt2), _long_extra(extra, run_id, f"{idx}/{clips}"), front=True)
             st["prompt_ids"].append(pid)
             files = await _long_wait(pid)
             if not files:
@@ -811,14 +811,16 @@ async def h3_mobile_long_run(request):
     clips = max(2, min(6, int(body.get("clips") or 2)))
     seconds = float(base.get("105:111", {}).get("inputs", {}).get("value") or 10)
     extra = body.get("extra_data") or {}
+    prompt2 = str(body.get("prompt2") or "").strip() or None  # 2本目以降だけ別のプロンプト（空なら1本目と同じ）
     run_id = _time.strftime("%Y%m%d-%H%M%S") + "-" + _uuid.uuid4().hex[:4]
     try:
         first = await _long_queue(_long_build(base, run_id, 1, clips, seconds), _long_extra(extra, run_id, f"1/{clips}"))
     except Exception as exc:
         raise web.HTTPBadRequest(text=f"長尺の1本目を開始できませんでした: {exc}"[:1500])
     _LONG_RUNS[run_id] = {"id": run_id, "clips": clips, "seconds": seconds, "clip": 1, "stage": f"1/{clips}本目を生成中",
-                          "prompt_ids": [], "done": False, "error": None, "final": None, "started": _time.time()}
-    asyncio.create_task(_long_worker(run_id, base, extra, clips, seconds, first))
+                          "prompt_ids": [], "done": False, "error": None, "final": None, "started": _time.time(),
+                          "prompt2": bool(prompt2)}
+    asyncio.create_task(_long_worker(run_id, base, extra, clips, seconds, first, prompt2))
     return web.json_response({"prompt_id": first, "number": 0, "node_errors": {}, "long_run": run_id})
 
 
