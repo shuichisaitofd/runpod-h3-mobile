@@ -621,3 +621,268 @@ if _pkg is not None and hasattr(_pkg, "MODE_SETS") and hasattr(_pkg, "MODEL_SPEC
     print("[H3] Veda image: stock FL2VA model excluded (10Eros-Max only)")
 else:
     print("[H3] Veda image: could not exclude stock FL2VA model")
+
+
+# ---------------------------------------------------------------------------
+# Long-video TEST image only (branch h3-longtest): chain I2V clips with
+# Herrgott's H3 Infinite Continuation v1.4 (Native Masked AV) and join them.
+#   POST /h3-mobile/api/long/run    body: {"prompt": <the page's I2V API graph>, "extra_data": {...}, "clips": 2}
+#        -> queues clip 1 now and returns its prompt_id (the page tracks it like a normal job);
+#           the remaining clips and the join run in the background on the Pod.
+#   GET  /h3-mobile/api/long/status -> recent runs (stage, clip, error, final file)
+# Every clip is saved "Stitch Ready" (overlap already removed), so joining is a plain
+# ffmpeg concat (seconds) done by the H3LongConcat node, which also puts the result in the history.
+import json as _json
+import subprocess as _subprocess
+import time as _time
+import uuid as _uuid
+
+_LONG_RUNS = {}
+_LONG_PORT = None
+
+
+def _long_port():
+    global _LONG_PORT
+    if _LONG_PORT is None:
+        port = getattr(PromptServer.instance, "port", None)
+        if not port:
+            try:
+                import comfy.cli_args as _ca
+                port = _ca.args.port
+            except Exception:
+                port = 8188
+        _LONG_PORT = int(port)
+    return _LONG_PORT
+
+
+def _long_cls(name):
+    import nodes as _nodes
+    cls = _nodes.NODE_CLASS_MAPPINGS.get(name)
+    if cls is None:
+        raise RuntimeError(f"ComfyUI node {name} is not installed (long-video nodes missing?)")
+    return cls
+
+
+def _long_slot(cls_name, out_name):
+    names = list(getattr(_long_cls(cls_name), "RETURN_NAMES", None) or [])
+    if out_name not in names:
+        raise RuntimeError(f"{cls_name} has no output {out_name} ({names})")
+    return names.index(out_name)
+
+
+def _long_node(cls_name, **given):
+    spec = _long_cls(cls_name).INPUT_TYPES()
+    inputs = {}
+    for name, s in (spec.get("required") or {}).items():
+        if name in given:
+            continue
+        t = s[0]
+        opts = s[1] if len(s) > 1 and isinstance(s[1], dict) else {}
+        if isinstance(t, (list, tuple)):
+            inputs[name] = opts.get("default", t[0] if t else "")
+        elif "default" in opts:
+            inputs[name] = opts["default"]
+    for name, value in given.items():
+        if value is not None:
+            inputs[name] = value
+    return {"class_type": cls_name, "inputs": inputs}
+
+
+def _long_build(base, run_id, idx, clips, seconds):
+    import copy as _copy
+    g = _copy.deepcopy(base)
+    i2v = g["105:104"]["inputs"]
+    prefix = f"h3long/{run_id}/clip"
+    head = None
+    if idx == 1:
+        g["L_cond"] = _long_node("H3ContinuousStartV14", clip=i2v["clip"], vae=i2v["vae"], prompt=i2v.get("prompt", ""),
+                                 width=i2v["width"], height=i2v["height"], duration=float(seconds),
+                                 first_frame=i2v.get("first_frame"))
+    else:
+        g["105:15"]["inputs"]["noise_seed"] = int(g["105:15"]["inputs"].get("noise_seed", 0)) + idx
+        g["L_load"] = _long_node("H3ContinuousLoadLatent", latent_path=f"h3long/{run_id}", clip_index=idx - 1)
+        g["L_cond"] = _long_node("H3ContinuousContinueV14", clip=i2v["clip"], vae=i2v["vae"],
+                                 previous_latent=["L_load", _long_slot("H3ContinuousLoadLatent", "latent")],
+                                 handover=["L_load", _long_slot("H3ContinuousLoadLatent", "handover")],
+                                 prompt=i2v.get("prompt", ""), width=i2v["width"], height=i2v["height"],
+                                 duration=float(seconds), masked_context_frames="39",
+                                 duration_mode="Net New Content", audio_tail_carryover="Full Previous Tail")
+        head = ["L_cond", _long_slot("H3ContinuousContinueV14", "actual_head_context_frames")]
+    del g["105:104"]
+    cond_cls = g["L_cond"]["class_type"]
+    g["105:16"]["inputs"]["conditioning"] = ["L_cond", _long_slot(cond_cls, "positive")]
+    g["105:14"]["inputs"]["latent_image"] = ["L_cond", _long_slot(cond_cls, "latent")]
+    h_slot = _long_slot("H3ContinuousAnalyzeHandoverV14", "handover")
+    g["L_an"] = _long_node("H3ContinuousAnalyzeHandoverV14", images=["105:10", 0])
+    mode = "Final Clip" if idx == clips else "Stitch Ready"
+    g["L_out"] = _long_node("H3ContinuousStitchOutputV14", images=["105:10", 0], audio=["105:23", 0],
+                            handover=["L_an", h_slot], output_mode=mode, head_context_frames=head)
+    g["105:91"]["inputs"]["images"] = ["L_out", _long_slot("H3ContinuousStitchOutputV14", "images")]
+    g["105:91"]["inputs"]["audio"] = ["L_out", _long_slot("H3ContinuousStitchOutputV14", "audio")]
+    g["92"]["inputs"]["filename_prefix"] = f"video/h3long/{run_id}_part{idx}"
+    if idx < clips:
+        g["L_save"] = _long_node("H3ContinuousSaveLatent", latent=["105:14", 0], filename_prefix=prefix, clip_index=idx,
+                                 handover=["L_an", h_slot], head_context_frames=head)
+    for n in g.values():
+        n.pop("_meta", None)
+    return g
+
+
+async def _long_http(method, path, body=None):
+    url = f"http://127.0.0.1:{_long_port()}{path}"
+    async with aiohttp.ClientSession() as session:
+        async with session.request(method, url, json=body, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+            text = await resp.text()
+            if resp.status >= 400:
+                raise RuntimeError(f"{path}: HTTP {resp.status}: {text[:2000]}")
+            return _json.loads(text or "null")
+
+
+def _long_extra(extra, run_id, label):
+    import copy as _copy
+    e = _copy.deepcopy(extra or {})
+    h = e.setdefault("h3_mobile", {})
+    if isinstance(h, dict):
+        h["title"] = f"{h.get('title') or '長尺'}（{label}）"
+        h["long_run"] = run_id
+    return e
+
+
+async def _long_queue(graph, extra):
+    r = await _long_http("POST", "/prompt", {"prompt": graph, "extra_data": extra, "client_id": "h3-long"})
+    return r["prompt_id"]
+
+
+async def _long_wait(pid):
+    while True:
+        await asyncio.sleep(3)
+        h = await _long_http("GET", f"/history/{pid}")
+        if pid in h:
+            st = h[pid].get("status", {})
+            if st.get("status_str") == "error":
+                msgs = [m for m in st.get("messages", []) if m and m[0] in ("execution_error", "execution_interrupted")]
+                detail = ""
+                if msgs and isinstance(msgs[0][1], dict):
+                    detail = msgs[0][1].get("exception_message") or ""
+                raise RuntimeError(f"生成に失敗しました: {detail or msgs}"[:800])
+            files = []
+            for out in h[pid].get("outputs", {}).values():
+                for key in ("images", "gifs", "videos", "video"):
+                    for f in out.get(key, []) if isinstance(out.get(key), list) else []:
+                        if isinstance(f, dict) and str(f.get("filename", "")).lower().endswith((".mp4", ".webm", ".mov")):
+                            files.append(f)
+            return files
+
+
+async def _long_worker(run_id, base, extra, clips, seconds, first_pid):
+    st = _LONG_RUNS[run_id]
+    parts = []
+    try:
+        pid = first_pid
+        for idx in range(1, clips + 1):
+            if idx > 1:
+                st.update(stage=f"{idx}/{clips}本目を生成中", clip=idx)
+                pid = await _long_queue(_long_build(base, run_id, idx, clips, seconds), _long_extra(extra, run_id, f"{idx}/{clips}"))
+            st["prompt_ids"].append(pid)
+            files = await _long_wait(pid)
+            if not files:
+                raise RuntimeError(f"{idx}本目の動画ファイルが見つかりません")
+            parts.append(files[0])
+        st.update(stage="つないでいます", clip=clips)
+        files_text = "\n".join(f"{p.get('subfolder', '')}/{p['filename']}".lstrip("/") for p in parts)
+        g = {"c": _long_node("H3LongConcat", files=files_text, filename_prefix=f"video/h3long/{run_id}_long")}
+        pid = await _long_queue(g, _long_extra(extra, run_id, f"{clips}本つなぎ"))
+        st["prompt_ids"].append(pid)
+        final = await _long_wait(pid)
+        st.update(stage="完成", done=True, final=(final[0] if final else None), finished=_time.time())
+    except Exception as exc:
+        st.update(stage="失敗", error=str(exc)[:800], done=True, finished=_time.time())
+
+
+@routes.post("/h3-mobile/api/long/run")
+async def h3_mobile_long_run(request):
+    body = await request.json()
+    base = body.get("prompt") or {}
+    if not isinstance(base, dict) or base.get("105:104", {}).get("class_type") != "MiniMaxH3ImageToVideo":
+        raise web.HTTPBadRequest(text="長尺は「画像から動画」だけで使えます。")
+    clips = max(2, min(6, int(body.get("clips") or 2)))
+    seconds = float(base.get("105:111", {}).get("inputs", {}).get("value") or 10)
+    extra = body.get("extra_data") or {}
+    run_id = _time.strftime("%Y%m%d-%H%M%S") + "-" + _uuid.uuid4().hex[:4]
+    try:
+        first = await _long_queue(_long_build(base, run_id, 1, clips, seconds), _long_extra(extra, run_id, f"1/{clips}"))
+    except Exception as exc:
+        raise web.HTTPBadRequest(text=f"長尺の1本目を開始できませんでした: {exc}"[:1500])
+    _LONG_RUNS[run_id] = {"id": run_id, "clips": clips, "seconds": seconds, "clip": 1, "stage": f"1/{clips}本目を生成中",
+                          "prompt_ids": [], "done": False, "error": None, "final": None, "started": _time.time()}
+    asyncio.create_task(_long_worker(run_id, base, extra, clips, seconds, first))
+    return web.json_response({"prompt_id": first, "number": 0, "node_errors": {}, "long_run": run_id})
+
+
+@routes.get("/h3-mobile/api/long/status")
+async def h3_mobile_long_status(request):
+    runs = sorted(_LONG_RUNS.values(), key=lambda r: r["started"], reverse=True)[:10]
+    now = _time.time()
+    return web.json_response({"runs": [dict(r, elapsed=int((r.get("finished") or now) - r["started"])) for r in runs]})
+
+
+def _long_ffmpeg():
+    import shutil as _shutil
+    exe = _shutil.which("ffmpeg")
+    if exe:
+        return exe
+    try:
+        import imageio_ffmpeg as _iff
+        return _iff.get_ffmpeg_exe()
+    except Exception:
+        raise RuntimeError("ffmpeg が見つかりません")
+
+
+class H3LongConcat:
+    """Join already-trimmed MP4 parts with ffmpeg (video copied, audio re-encoded) and show the result in the history."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"files": ("STRING", {"multiline": True, "default": ""}),
+                             "filename_prefix": ("STRING", {"default": "video/h3long/long"})}}
+
+    RETURN_TYPES = ()
+    FUNCTION = "join"
+    OUTPUT_NODE = True
+    CATEGORY = "H3 Mobile/long"
+
+    def join(self, files, filename_prefix):
+        out_root = Path(folder_paths.get_output_directory())
+        parts = [out_root / f.strip() for f in str(files).splitlines() if f.strip()]
+        for p in parts:
+            if not p.is_file():
+                raise RuntimeError(f"part not found: {p}")
+        sub = str(Path(filename_prefix).parent)
+        name = Path(filename_prefix).name
+        target_dir = out_root / sub
+        target_dir.mkdir(parents=True, exist_ok=True)
+        n = 1
+        while (target_dir / f"{name}_{n:05d}_.mp4").exists():
+            n += 1
+        target = target_dir / f"{name}_{n:05d}_.mp4"
+        lst = target_dir / f".{name}_{n:05d}_list.txt"
+        lst.write_text("".join(f"file '{str(p)}'\n" for p in parts), encoding="utf-8")
+        cmd = [_long_ffmpeg(), "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lst),
+               "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(target)]
+        r = _subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            lst.unlink()
+        except Exception:
+            pass
+        if r.returncode != 0:
+            raise RuntimeError(f"ffmpeg concat failed: {r.stderr[-1500:]}")
+        return {"ui": {"images": [{"filename": target.name, "subfolder": sub, "type": "output"}], "animated": (True,)}}
+
+
+try:
+    import nodes as _nodes_mod
+    _nodes_mod.NODE_CLASS_MAPPINGS["H3LongConcat"] = H3LongConcat
+    _nodes_mod.NODE_DISPLAY_NAME_MAPPINGS["H3LongConcat"] = "H3 Long: Concat parts"
+    print("[H3] long-video test routes ready (/h3-mobile/api/long/*, H3LongConcat)")
+except Exception as _exc:
+    print(f"[H3] long-video test: could not register H3LongConcat: {_exc}")
