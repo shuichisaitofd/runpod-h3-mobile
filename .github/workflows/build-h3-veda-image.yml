@@ -1,9 +1,9 @@
-name: Build H3 Veda Test Image
+name: Build H3 Long-Video Test Image
 
 on:
   workflow_dispatch:
   push:
-    branches: [h3-veda-image]
+    branches: [h3-longtest]
     paths:
       - Dockerfile.veda
       - veda-image/**
@@ -44,5 +44,5 @@ jobs:
           push: true
           pull: true
           tags: |
-            ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-veda-test
-            ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-veda-test-${{ github.sha }}
+            ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-longtest
+            ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-longtest-${{ github.sha }}

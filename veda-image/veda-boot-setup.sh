@@ -1,5 +1,5 @@
 #!/bin/bash
-# Veda test image: runs in the background at Pod boot. Idempotent. Same steps as restore.sh (1,2 + predictor only).
+# Veda long-video TEST image (branch h3-longtest): runs in the background at Pod boot. Idempotent. Same steps as restore.sh (1,2 + predictor only).
 # Log: /workspace/veda_boot_setup.log   Status: /workspace/veda_boot_status.txt
 W=/workspace/runpod-slim
 C=$W/ComfyUI
@@ -59,6 +59,16 @@ fi
 if [ ! -f "$V/.h3_veda_reqs_ok" ]; then
   PIP_CONSTRAINT=/opt/comfyui-runtime-constraints.txt "$PY/pip" install -r "$V/requirements.txt" || fail "pip install of Veda requirements failed"
   touch "$V/.h3_veda_reqs_ok"
+  need_restart=1
+fi
+
+# 2b. Long-video test image only: Herrgott's H3 Infinite Continuation Suite v1.4 (pinned commit)
+HG=$C/custom_nodes/Herrgotts-H3-Infinite-Continuation-Suite
+HG_REV=4b1edd678de7356beebf3761b2532a35e07d0389
+if [ "$(git -C "$HG" rev-parse HEAD 2>/dev/null)" != "$HG_REV" ]; then
+  status "WORKING: installing the long-video nodes"
+  [ -d "$HG/.git" ] || git clone https://github.com/HerrgottMargott/Herrgotts-H3-Infinite-Continuation-Suite.git "$HG" || fail "git clone of the long-video nodes failed"
+  git -C "$HG" checkout "$HG_REV" || fail "git checkout of the long-video nodes failed"
   need_restart=1
 fi
 

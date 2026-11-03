@@ -1,3 +1,4 @@
+# Long-video TEST image (branch h3-longtest, tags h3-longtest-*): the Veda image + Herrgott's continuation nodes (installed at boot) + /opt/h3-veda/h3_long_test.py.
 # H3 Veda test image: the production image + a background first-boot setup that installs
 # ComfyUI v0.38.0 (if needed), Veda (60bfae6) and its predictor model. Production (main) is not touched.
 # lora_routes.py below is the veda branch's own copy (adds MysticXXX_MMH3-V5, cxy_kiss_v3, nipplesuck-k3nk, jav-voice, HMPussyV2 and Rough.Sex for the veda side only; also holds the 10Eros-Max INT8 downloads (beta7 raw auto at startup, old v2 on demand) and excludes the stock FL2VA download).
@@ -5,5 +6,6 @@ FROM ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-cu130-latest
 COPY h3-mobile/lora_routes.py /opt/comfyui-baked/custom_nodes/ComfyUI-H3-Mobile/lora_routes.py
 COPY veda-image/veda-boot-setup.sh /opt/h3-veda/veda-boot-setup.sh
 COPY veda-image/run-h3-veda.sh /run-h3-veda.sh
+COPY veda-image/h3_long_test.py /opt/h3-veda/h3_long_test.py
 RUN chmod +x /opt/h3-veda/veda-boot-setup.sh /run-h3-veda.sh && bash -n /opt/h3-veda/veda-boot-setup.sh && bash -n /run-h3-veda.sh
 ENTRYPOINT ["/run-h3-veda.sh"]
