@@ -748,8 +748,11 @@ def _long_extra(extra, run_id, label):
     return e
 
 
-async def _long_queue(graph, extra):
-    r = await _long_http("POST", "/prompt", {"prompt": graph, "extra_data": extra, "client_id": "h3-long"})
+async def _long_queue(graph, extra, front=False):
+    body = {"prompt": graph, "extra_data": extra, "client_id": "h3-long"}
+    if front:
+        body["front"] = True  # continuation / join go next, before other queued jobs
+    r = await _long_http("POST", "/prompt", body)
     return r["prompt_id"]
 
 
@@ -782,7 +785,7 @@ async def _long_worker(run_id, base, extra, clips, seconds, first_pid):
         for idx in range(1, clips + 1):
             if idx > 1:
                 st.update(stage=f"{idx}/{clips}本目を生成中", clip=idx)
-                pid = await _long_queue(_long_build(base, run_id, idx, clips, seconds), _long_extra(extra, run_id, f"{idx}/{clips}"))
+                pid = await _long_queue(_long_build(base, run_id, idx, clips, seconds), _long_extra(extra, run_id, f"{idx}/{clips}"), front=True)
             st["prompt_ids"].append(pid)
             files = await _long_wait(pid)
             if not files:
@@ -791,7 +794,7 @@ async def _long_worker(run_id, base, extra, clips, seconds, first_pid):
         st.update(stage="つないでいます", clip=clips)
         files_text = "\n".join(f"{p.get('subfolder', '')}/{p['filename']}".lstrip("/") for p in parts)
         g = {"c": _long_node("H3LongConcat", files=files_text, filename_prefix=f"video/h3long/{run_id}_long")}
-        pid = await _long_queue(g, _long_extra(extra, run_id, f"{clips}本つなぎ"))
+        pid = await _long_queue(g, _long_extra(extra, run_id, f"{clips}本つなぎ"), front=True)
         st["prompt_ids"].append(pid)
         final = await _long_wait(pid)
         st.update(stage="完成", done=True, final=(final[0] if final else None), finished=_time.time())
