@@ -845,6 +845,9 @@ async def h3_mobile_long_run(request):
     _LONG_RUNS[run_id] = {"id": run_id, "clips": clips, "seconds": seconds, "clip": 1, "stage": f"1/{clips}本目を生成中",
                           "prompt_ids": [], "done": False, "error": None, "final": None, "started": _time.time(),
                           "prompt2": any(prompts), "custom_prompts": sum(1 for x in raw[:clips - 1] if str(x or "").strip())}
+    h3m = extra.get("h3_mobile") if isinstance(extra, dict) else None
+    _long_write_meta(run_id, {"title": (h3m or {}).get("title") or "", "clips": clips, "seconds": seconds,
+                              "started": _time.time(), "prompts": [bool(p) for p in raw[:clips - 1]]})
     asyncio.create_task(_long_worker(run_id, base, extra, clips, seconds, first, prompts))
     return web.json_response({"prompt_id": first, "number": 0, "node_errors": {}, "long_run": run_id})
 
@@ -854,6 +857,116 @@ async def h3_mobile_long_status(request):
     runs = sorted(_LONG_RUNS.values(), key=lambda r: r["started"], reverse=True)[:10]
     now = _time.time()
     return web.json_response({"runs": [dict(r, elapsed=int((r.get("finished") or now) - r["started"])) for r in runs]})
+
+
+# --- parts page / split downloads (β) -------------------------------------------------
+import re as _re
+import shutil as _shutil_mod
+import tempfile as _tempfile
+import zipfile as _zipfile
+
+_LONG_PART_RE = _re.compile(r"^(?P<run>.+)_part(?P<n>\d+)_\d+_\.mp4$")
+_LONG_JOIN_RE = _re.compile(r"^(?P<run>.+)_long_\d+_\.mp4$")
+_LONG_VIDEO_EXT = {".mp4", ".webm", ".mov", ".mkv", ".gif"}
+
+
+def _long_out():
+    return Path(folder_paths.get_output_directory())
+
+
+def _long_meta_path(run_id):
+    return _long_out() / "h3long" / run_id / "meta.json"
+
+
+def _long_write_meta(run_id, data):
+    try:
+        p = _long_meta_path(run_id)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(_json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    except Exception as exc:
+        print(f"[H3] long-video: could not write meta for {run_id}: {exc}")
+
+
+def _long_is_part(path):
+    return path.parent == _long_out() / "video" / "h3long" and bool(_LONG_PART_RE.match(path.name))
+
+
+@routes.get("/h3-mobile/api/long/parts")
+async def h3_mobile_long_parts(request):
+    vdir = _long_out() / "video" / "h3long"
+    runs = {}
+    if vdir.is_dir():
+        for p in vdir.glob("*.mp4"):
+            m = _LONG_PART_RE.match(p.name)
+            j = None if m else _LONG_JOIN_RE.match(p.name)
+            if not m and not j:
+                continue
+            run_id = (m or j).group("run")
+            st = p.stat()
+            r = runs.setdefault(run_id, {"id": run_id, "parts": [], "joined": None, "mtime": 0})
+            r["mtime"] = max(r["mtime"], st.st_mtime)
+            f = {"filename": p.name, "subfolder": "video/h3long", "type": "output", "size": st.st_size, "mtime": st.st_mtime}
+            if m:
+                f["n"] = int(m.group("n"))
+                r["parts"].append(f)
+            else:
+                r["joined"] = f
+    out = []
+    for r in runs.values():
+        if not r["parts"]:
+            continue
+        r["parts"].sort(key=lambda f: (f["n"], f["mtime"]))
+        meta = {}
+        try:
+            meta = _json.loads(_long_meta_path(r["id"]).read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        live = _LONG_RUNS.get(r["id"]) or {}
+        r["title"] = meta.get("title") or ""
+        r["clips"] = meta.get("clips") or live.get("clips") or len(r["parts"])
+        r["seconds"] = meta.get("seconds") or live.get("seconds")
+        r["stage"] = live.get("stage") or ("完成" if r["joined"] else "")
+        out.append(r)
+    out.sort(key=lambda r: r["mtime"], reverse=True)
+    return web.json_response({"runs": out})
+
+
+def _long_zip(files, name):
+    temp_dir = Path(_tempfile.mkdtemp(prefix="h3-long-zip-"))
+    zip_path = temp_dir / name
+    try:
+        with _zipfile.ZipFile(zip_path, "w", compression=_zipfile.ZIP_STORED, allowZip64=True) as archive:
+            for path in files:
+                archive.write(path, arcname=str(path.relative_to(_long_out())))
+    except Exception:
+        _shutil_mod.rmtree(temp_dir, ignore_errors=True)
+        raise
+    return temp_dir, zip_path
+
+
+async def _long_rm_later(path, delay=3600):
+    await asyncio.sleep(delay)
+    _shutil_mod.rmtree(path, ignore_errors=True)
+
+
+@routes.get("/h3-mobile/api/long/download")
+async def h3_mobile_long_download(request):
+    """kind=main: every video except the long-video parts (same as 一括ダウンロード without parts). kind=parts: parts only."""
+    kind = request.query.get("kind", "main")
+    vdir = _long_out() / "video"
+    files = []
+    if vdir.is_dir():
+        files = [p for p in vdir.rglob("*") if p.is_file() and p.suffix.lower() in _LONG_VIDEO_EXT]
+    files = [p for p in files if _long_is_part(p) == (kind == "parts")]
+    files.sort(key=lambda p: p.stat().st_mtime)
+    if not files:
+        raise web.HTTPNotFound(text="ダウンロードできる動画がありません。")
+    name = "h3-long-parts.zip" if kind == "parts" else "h3-videos.zip"
+    temp_dir, zip_path = await asyncio.to_thread(_long_zip, files, name)
+    asyncio.create_task(_long_rm_later(temp_dir))
+    response = web.FileResponse(zip_path)
+    response.headers["Content-Disposition"] = f'attachment; filename="{name}"'
+    return response
 
 
 def _long_ffmpeg():
