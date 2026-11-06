@@ -2,7 +2,7 @@
 import modal
 
 IMAGE = "ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-longtest-c9443c9e535d3053ec858f602daa50af59c65e0d"
-img = modal.Image.from_registry(IMAGE).entrypoint([])
+img = modal.Image.from_registry(IMAGE).entrypoint([]).run_commands("ln -sf \"$(command -v python3.12)\" /usr/local/bin/python && python --version")
 app = modal.App("h3-probe", image=img)
 
 CMD = r"""
