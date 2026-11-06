@@ -263,7 +263,10 @@ def web():
         body = await request.body()
         req = client.build_request(request.method, target, headers=headers, content=body)
         r = await client.send(req, stream=True)
-        rh = {k: v for k, v in r.headers.items() if k.lower() not in ("transfer-encoding", "connection")}
-        return StreamingResponse(r.aiter_raw(), status_code=r.status_code, headers=rh, background=BackgroundTask(r.aclose))
+        resp = StreamingResponse(r.aiter_raw(), status_code=r.status_code, background=BackgroundTask(r.aclose))
+        # pass the headers through as raw bytes: ComfyUI's /view sends the (Japanese) file name in Content-Disposition,
+        # which cannot be re-encoded as latin-1 text
+        resp.raw_headers = [(k, v) for k, v in r.headers.raw if k.lower() not in (b"transfer-encoding", b"connection")]
+        return resp
 
     return api
