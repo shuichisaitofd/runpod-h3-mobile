@@ -162,57 +162,13 @@ body{margin:0;background:#0b0b0d;color:#f2f2f2;font:16px/1.6 -apple-system,syste
 h1{font-size:20px;margin:0 0 12px}b{color:#fff}.s{color:#a1a1aa;font-size:14px}
 button{font:inherit;font-weight:700;border:0;border-radius:12px;padding:14px;width:100%;margin:6px 0;background:#ff6a2b;color:#111}
 button.sec{background:#26262b;color:#f2f2f2}code{word-break:break-all;background:#000;padding:2px 6px;border-radius:6px}
-.budget-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-.budget-grid label{display:block;font-size:14px;color:#a1a1aa}
-.budget-grid input{box-sizing:border-box;width:100%;margin-top:6px;padding:12px;border:1px solid #3f3f46;border-radius:10px;background:#0b0b0d;color:#fff;font:inherit}
-#budget-result{font-size:24px;font-weight:700;margin:12px 0 4px}
 </style></head><body>
 <h1>H3 on Modal（テスト）</h1>
 <div class="card"><div>状態：<b id="st">…</b></div><div class="s" id="sub"></div></div>
-<div class="card" aria-labelledby="budget-title">
-<h2 id="budget-title" style="font-size:17px;margin:0 0 12px">残り予算で使える時間（目安）</h2>
-<div class="budget-grid">
-<label for="budget-remaining">残り予算（USD）<input id="budget-remaining" type="number" min="0" step="any" inputmode="decimal" placeholder="例: 10.00"></label>
-<label for="budget-hourly">1時間の合計料金（USD）<input id="budget-hourly" type="number" min="0" step="any" inputmode="decimal" placeholder="合計の時間単価"></label>
-</div>
-<div id="budget-result" role="status" aria-live="polite">予算と時間単価を入力してください</div>
-<div class="s" id="budget-formula"></div>
-<p class="s" style="margin-bottom:0">残り予算 ÷ 1時間の合計料金で計算します。時間単価にはGPU・CPU・メモリとリージョン指定による料金差を含めてください。</p>
-<p class="s">入力時点の目安です。Modalの実利用額とは自動連動せず、予算上限やGPUの停止設定も変更しません。入力はこのブラウザにだけ保存します。</p>
-<a class="s" href="https://modal.com/settings/shuichisaitofd/usage?tab=budgets" target="_blank" rel="noopener noreferrer">Modalで予算・使用額を確認</a>
-</div>
 <div class="card"><button id="start">GPUを起動</button><button class="sec" id="ext">停止を先に延ばす</button><button class="sec" id="stop">GPUを停止</button></div>
 <div class="card s">H3 Studio β の設定で、Podの代わりにこのURLを登録します：<br><code id="me"></code><br>
 GPUは使われていない状態が""" + str(IDLE_MINUTES) + """分続くと自動で止まります。止まると動画は消えるので、先にダウンロードしてください。</div>
 <script>
-// This estimate uses only browser input. No billing credentials or financial
-// values are sent to the public Modal endpoint; RunPod code is unchanged.
-(function(){
-const key='h3modal.budgetEstimate.v1';
-const remaining=document.getElementById('budget-remaining');
-const hourly=document.getElementById('budget-hourly');
-const result=document.getElementById('budget-result');
-const formula=document.getElementById('budget-formula');
-function estimateBudgetMinutes(budgetText,rateText){
- if(String(budgetText).trim()===''||String(rateText).trim()==='')return null;
- const budget=Number(budgetText),rate=Number(rateText);
- if(!Number.isFinite(budget)||!Number.isFinite(rate)||budget<0||rate<=0)return null;
- const minutes=Math.floor(budget/rate*60);
- return Number.isSafeInteger(minutes)?minutes:null;
-}
-function renderEstimate(){
- const minutes=estimateBudgetMinutes(remaining.value,hourly.value);
- if(minutes===null){result.textContent='予算と0より大きい時間単価を入力してください';formula.textContent='';return;}
- result.textContent=minutes===0?(Number(remaining.value)===0?'残り予算なし':'約1分未満'):'あと約'+Math.floor(minutes/60)+'時間'+minutes%60+'分';
- formula.textContent='$'+Number(remaining.value).toFixed(2)+' ÷ $'+Number(hourly.value).toFixed(4)+'/時間';
-}
-try{const saved=JSON.parse(localStorage.getItem(key)||'null');if(saved&&typeof saved==='object'){remaining.value=saved.remaining??'';hourly.value=saved.hourly??'';}}catch(e){}
-[remaining,hourly].forEach(input=>input.addEventListener('input',()=>{
- try{localStorage.setItem(key,JSON.stringify({remaining:remaining.value,hourly:hourly.value}));}catch(e){}
- renderEstimate();
-}));
-renderEstimate();
-})();
 const me=location.origin;document.getElementById('me').textContent=me;
 const L={stopped:'停止中',starting:'起動中',ready:'動いています',crashed:'エラーで停止'};
 async function st(){try{const j=await (await fetch('/h3modal/status',{cache:'no-store'})).json();
