@@ -20,6 +20,8 @@ import modal
 IMAGE_TAG = "ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-longtest-c9443c9e535d3053ec858f602daa50af59c65e0d"
 GPU = "L40S"
 IDLE_MINUTES = 20
+# lora_routes.py (H3 Mobile long-video / LoRA routes) is taken from this commit, so Modal gets fixes without an image rebuild.
+LORA_ROUTES_SHA = "6244f533623bedd19a346408989849122d940b9d"
 W = "/workspace/runpod-slim"
 C = W + "/ComfyUI"
 
@@ -43,6 +45,8 @@ git -C custom_nodes/Herrgotts-H3-Infinite-Continuation-Suite checkout 4b1edd678d
 mkdir -p models/veda
 curl -fL --retry 5 -o models/veda/minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors https://huggingface.co/Veda-Sparse/Minimax-H3-T2VA-Veda-8NFE-600Step-Preview/resolve/main/minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors
 echo "2a8d8845c5342756a2781e8e69563940e4bb573c9a40ebb534915ff8fd76573a  models/veda/minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors" | sha256sum -c -
+curl -fsSL -o custom_nodes/ComfyUI-H3-Mobile/lora_routes.py "https://raw.githubusercontent.com/shuichisaitofd/runpod-h3-mobile/__SHA__/h3-mobile/lora_routes.py"
+python3.12 -m py_compile custom_nodes/ComfyUI-H3-Mobile/lora_routes.py
 F=custom_nodes/ComfyUI-H3-Mobile/__init__.py
 sed -i '/from \.web import lora_routes/d' "$F"
 grep -Fq 'from . import lora_routes' "$F" || printf '\nfrom . import lora_routes  # register dynamic LoRA manager endpoints\n' >> "$F"
@@ -61,7 +65,7 @@ print('sage disabled in i2v.json')
 
 import base64 as _b64
 
-_SETUP_B64 = _b64.b64encode(SETUP.encode()).decode()
+_SETUP_B64 = _b64.b64encode(SETUP.replace("__SHA__", LORA_ROUTES_SHA).encode()).decode()
 
 gpu_image = (
     modal.Image.from_registry(IMAGE_TAG)
@@ -172,10 +176,11 @@ document.getElementById('st').textContent=L[j.status]||j.status||'停止中';
 let s='';if(j.status==='starting')s='起動中… '+Math.round((Date.now()/1000-j.since))+'秒（モデルのダウンロードは起動後に始まります）';
 if(j.status==='ready')s='自動停止まで あと約'+Math.ceil((j.idle_left||0)/60)+'分'+(j.busy?'（生成・ダウンロード中）':'');
 if(j.error)s+='\\nエラー: '+j.error;document.getElementById('sub').textContent=s;}catch(e){document.getElementById('sub').textContent='状態の取得に失敗';}}
-async function post(p){await fetch(p,{method:'POST'});st();}
-document.getElementById('start').onclick=()=>post('/h3modal/start');
-document.getElementById('stop').onclick=()=>{if(confirm('GPUを止めますか？（動画は消えます）'))post('/h3modal/stop');};
-document.getElementById('ext').onclick=()=>post('/h3modal/extend');
+async function post(p,b,label){if(b){b.disabled=true;b.textContent=label;}try{await fetch(p,{method:'POST'});}catch(e){}await st();if(b)setTimeout(()=>{b.disabled=false;b.textContent=b.dataset.t;},4000);}
+document.querySelectorAll('button').forEach(b=>b.dataset.t=b.textContent);
+document.getElementById('start').onclick=e=>{document.getElementById('st').textContent='起動中';post('/h3modal/start',e.target,'起動しています…');};
+document.getElementById('stop').onclick=e=>{if(confirm('GPUを止めますか？（動画は消えます）'))post('/h3modal/stop',e.target,'止めています…');};
+document.getElementById('ext').onclick=e=>post('/h3modal/extend',e.target,'延ばしました（20分）');
 st();setInterval(st,5000);
 </script></body></html>"""
 
