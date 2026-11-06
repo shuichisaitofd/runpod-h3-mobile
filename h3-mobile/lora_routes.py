@@ -689,7 +689,7 @@ def _long_node(cls_name, **given):
     return {"class_type": cls_name, "inputs": inputs}
 
 
-def _long_build(base, run_id, idx, clips, seconds, prompt2=None):
+def _long_build(base, run_id, idx, clips, seconds, prompt2=None, part_prefix=None):
     import copy as _copy
     g = _copy.deepcopy(base)
     i2v = g["105:104"]["inputs"]
@@ -720,7 +720,7 @@ def _long_build(base, run_id, idx, clips, seconds, prompt2=None):
                             handover=["L_an", h_slot], output_mode=mode, head_context_frames=head)
     g["105:91"]["inputs"]["images"] = ["L_out", _long_slot("H3ContinuousStitchOutputV14", "images")]
     g["105:91"]["inputs"]["audio"] = ["L_out", _long_slot("H3ContinuousStitchOutputV14", "audio")]
-    g["92"]["inputs"]["filename_prefix"] = f"video/h3long/{run_id}_part{idx}"
+    g["92"]["inputs"]["filename_prefix"] = part_prefix or f"video/h3long/{run_id}_part{idx}"
     if idx < clips:
         g["L_save"] = _long_node("H3ContinuousSaveLatent", latent=["105:14", 0], filename_prefix=prefix, clip_index=idx,
                                  handover=["L_an", h_slot], head_context_frames=head)
@@ -749,8 +749,10 @@ def _long_extra(extra, run_id, label):
     return e
 
 
-async def _long_queue(graph, extra, front=False):
+async def _long_queue(graph, extra, front=False, prompt_id=None):
     body = {"prompt": graph, "extra_data": extra, "client_id": "h3-long"}
+    if prompt_id:
+        body["prompt_id"] = prompt_id  # decided earlier (the page already tracks it)
     if front:
         body["front"] = True  # continuation / join go next, before other queued jobs
     r = await _long_http("POST", "/prompt", body)
@@ -791,32 +793,62 @@ def _long_keep_cache(base):
     return g
 
 
-async def _long_worker(run_id, base, extra, clips, seconds, first_pid, prompts=None):
+_LONG_LOCK = asyncio.Lock()  # one long run at a time; the next one waits (FIFO). Normal jobs are not held.
+
+
+def _long_safe(title):
+    return _re.sub(r'[\\/:*?"<>|]+', "_", str(title or "H3")).strip()[:80] or "H3"
+
+
+def _long_part_prefix(safe, idx):
+    return f"video/h3long/parts/{safe}_{idx}本目"
+
+
+async def _long_worker(run_id, base, extra, clips, seconds, first_pid, prompts=None, title="", held=False):
     st = _LONG_RUNS[run_id]
+    safe = _long_safe(title)
     parts = []
     try:
+        if not held:
+            await _LONG_LOCK.acquire()
+            held = True
+            st.update(stage=f"1/{clips}本目を生成中", clip=1, gen_started=_time.time())
+            _long_update_meta(run_id, gen_started=st["gen_started"])
+            await _long_queue(_long_build(base, run_id, 1, clips, seconds, part_prefix=_long_part_prefix(safe, 1)),
+                              _long_extra(extra, run_id, f"1/{clips}"), prompt_id=first_pid)
         pid = first_pid
         for idx in range(1, clips + 1):
             if idx > 1:
                 st.update(stage=f"{idx}/{clips}本目を生成中", clip=idx)
-                pid = await _long_queue(_long_build(base, run_id, idx, clips, seconds, (prompts or [None] * clips)[idx - 2]), _long_extra(extra, run_id, f"{idx}/{clips}"), front=True)
+                pid = await _long_queue(_long_build(base, run_id, idx, clips, seconds, (prompts or [None] * clips)[idx - 2],
+                                                    part_prefix=_long_part_prefix(safe, idx)),
+                                        _long_extra(extra, run_id, f"{idx}/{clips}"), front=True)
             st["prompt_ids"].append(pid)
             files = await _long_wait(pid)
             if not files:
                 raise RuntimeError(f"{idx}本目の動画ファイルが見つかりません")
             parts.append(files[0])
+            _long_update_meta(run_id, parts=[dict(n=i + 1, filename=p["filename"], subfolder=p.get("subfolder", ""))
+                                             for i, p in enumerate(parts)])
         st.update(stage="つないでいます", clip=clips)
         files_text = "\n".join(f"{p.get('subfolder', '')}/{p['filename']}".lstrip("/") for p in parts)
         # Keep the I2V loader nodes in this prompt (they are not run): a prompt without them makes ComfyUI
         # drop the cached models, and the next normal job would load them from disk again (+1~2 min).
         g = _long_keep_cache(base)
-        g["c"] = _long_node("H3LongConcat", files=files_text, filename_prefix=f"video/h3long/{run_id}_long")
+        g["c"] = _long_node("H3LongConcat", files=files_text, filename_prefix=f"video/{safe}_{clips}本つなぎ")
         pid = await _long_queue(g, _long_extra(extra, run_id, f"{clips}本つなぎ"), front=True)
         st["prompt_ids"].append(pid)
         final = await _long_wait(pid)
         st.update(stage="完成", done=True, final=(final[0] if final else None), finished=_time.time())
+        if final:
+            _long_update_meta(run_id, joined=dict(filename=final[0]["filename"], subfolder=final[0].get("subfolder", "")))
     except Exception as exc:
         st.update(stage="失敗", error=str(exc)[:800], done=True, finished=_time.time())
+    finally:
+        if held:
+            _LONG_LOCK.release()
+        _long_update_meta(run_id, finished=st.get("finished") or _time.time(), stage=st.get("stage"),
+                          elapsed=int((st.get("finished") or _time.time()) - (st.get("gen_started") or st["started"])))
 
 
 @routes.post("/h3-mobile/api/long/run")
@@ -838,17 +870,31 @@ async def h3_mobile_long_run(request):
         prompts.append(p)
         prev = p
     run_id = _time.strftime("%Y%m%d-%H%M%S") + "-" + _uuid.uuid4().hex[:4]
-    try:
-        first = await _long_queue(_long_build(base, run_id, 1, clips, seconds), _long_extra(extra, run_id, f"1/{clips}"))
-    except Exception as exc:
-        raise web.HTTPBadRequest(text=f"長尺の1本目を開始できませんでした: {exc}"[:1500])
-    _LONG_RUNS[run_id] = {"id": run_id, "clips": clips, "seconds": seconds, "clip": 1, "stage": f"1/{clips}本目を生成中",
-                          "prompt_ids": [], "done": False, "error": None, "final": None, "started": _time.time(),
-                          "prompt2": any(prompts), "custom_prompts": sum(1 for x in raw[:clips - 1] if str(x or "").strip())}
     h3m = extra.get("h3_mobile") if isinstance(extra, dict) else None
-    _long_write_meta(run_id, {"title": (h3m or {}).get("title") or "", "clips": clips, "seconds": seconds,
-                              "started": _time.time(), "prompts": [bool(p) for p in raw[:clips - 1]]})
-    asyncio.create_task(_long_worker(run_id, base, extra, clips, seconds, first, prompts))
+    title = (h3m or {}).get("title") or ""
+    now = _time.time()
+    held = False
+    if not _LONG_LOCK.locked():
+        await _LONG_LOCK.acquire()
+        held = True
+        try:
+            first = await _long_queue(_long_build(base, run_id, 1, clips, seconds,
+                                                  part_prefix=_long_part_prefix(_long_safe(title), 1)),
+                                      _long_extra(extra, run_id, f"1/{clips}"))
+        except Exception as exc:
+            _LONG_LOCK.release()
+            raise web.HTTPBadRequest(text=f"長尺の1本目を開始できませんでした: {exc}"[:1500])
+        stage = f"1/{clips}本目を生成中"
+    else:
+        first = str(_uuid.uuid4())  # queued later, when the long run before this one has finished
+        stage = "順番待ち（前の長尺が終わったら始まります）"
+    _LONG_RUNS[run_id] = {"id": run_id, "clips": clips, "seconds": seconds, "clip": 1, "stage": stage, "title": title,
+                          "prompt_ids": [], "done": False, "error": None, "final": None, "started": now,
+                          "gen_started": now if held else None,
+                          "prompt2": any(prompts), "custom_prompts": sum(1 for x in raw[:clips - 1] if str(x or "").strip())}
+    _long_write_meta(run_id, {"title": title, "clips": clips, "seconds": seconds, "started": now,
+                              "gen_started": now if held else None, "prompts": [bool(p) for p in raw[:clips - 1]]})
+    asyncio.create_task(_long_worker(run_id, base, extra, clips, seconds, first, prompts, title=title, held=held))
     return web.json_response({"prompt_id": first, "number": 0, "node_errors": {}, "long_run": run_id})
 
 
@@ -856,7 +902,8 @@ async def h3_mobile_long_run(request):
 async def h3_mobile_long_status(request):
     runs = sorted(_LONG_RUNS.values(), key=lambda r: r["started"], reverse=True)[:10]
     now = _time.time()
-    return web.json_response({"runs": [dict(r, elapsed=int((r.get("finished") or now) - r["started"])) for r in runs]})
+    return web.json_response({"runs": [dict(r, elapsed=int((r.get("finished") or now) - (r.get("gen_started") or r["started"])))
+                                       for r in runs]})
 
 
 # --- parts page / split downloads (β) -------------------------------------------------
@@ -887,14 +934,56 @@ def _long_write_meta(run_id, data):
         print(f"[H3] long-video: could not write meta for {run_id}: {exc}")
 
 
+def _long_read_meta(run_id):
+    try:
+        return _json.loads(_long_meta_path(run_id).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _long_update_meta(run_id, **kw):
+    m = _long_read_meta(run_id)
+    m.update(kw)
+    _long_write_meta(run_id, m)
+
+
 def _long_is_part(path):
-    return path.parent == _long_out() / "video" / "h3long" and bool(_LONG_PART_RE.match(path.name))
+    vdir = _long_out() / "video" / "h3long"
+    if path.parent == vdir / "parts":
+        return True
+    return path.parent == vdir and bool(_LONG_PART_RE.match(path.name))
+
+
+def _long_file(f):
+    p = _long_out() / (f.get("subfolder") or "") / f["filename"]
+    if not p.is_file():
+        return None
+    st = p.stat()
+    return {"filename": f["filename"], "subfolder": f.get("subfolder") or "", "type": "output", "size": st.st_size,
+            "mtime": st.st_mtime, **({"n": f["n"]} if "n" in f else {})}
 
 
 @routes.get("/h3-mobile/api/long/parts")
 async def h3_mobile_long_parts(request):
     vdir = _long_out() / "video" / "h3long"
     runs = {}
+    new_runs = []
+    mroot = _long_out() / "h3long"
+    if mroot.is_dir():
+        for mp in mroot.glob("*/meta.json"):
+            run_id = mp.parent.name
+            m = _long_read_meta(run_id)
+            if not isinstance(m.get("parts"), list):
+                continue
+            parts = [x for x in (_long_file(f) for f in m["parts"]) if x]
+            if not parts:
+                continue
+            joined = _long_file(m["joined"]) if isinstance(m.get("joined"), dict) else None
+            live = _LONG_RUNS.get(run_id) or {}
+            new_runs.append({"id": run_id, "title": m.get("title") or "", "clips": m.get("clips") or len(parts),
+                             "seconds": m.get("seconds"), "parts": parts, "joined": joined, "elapsed": m.get("elapsed"),
+                             "stage": live.get("stage") or m.get("stage") or ("完成" if joined else ""),
+                             "mtime": max([p["mtime"] for p in parts] + ([joined["mtime"]] if joined else []))})
     if vdir.is_dir():
         for p in vdir.glob("*.mp4"):
             m = _LONG_PART_RE.match(p.name)
@@ -927,6 +1016,7 @@ async def h3_mobile_long_parts(request):
         r["seconds"] = meta.get("seconds") or live.get("seconds")
         r["stage"] = live.get("stage") or ("完成" if r["joined"] else "")
         out.append(r)
+    out.extend(new_runs)
     out.sort(key=lambda r: r["mtime"], reverse=True)
     return web.json_response({"runs": out})
 
