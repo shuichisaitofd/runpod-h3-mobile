@@ -185,19 +185,20 @@ st();setInterval(st,5000);
 </script></body></html>"""
 
 
-@app.function(image=web_image, cpu=0.25, memory=512, scaledown_window=120, max_containers=1)
+@app.function(image=web_image, cpu=1.0, memory=1024, scaledown_window=300, max_containers=1)
 @modal.concurrent(max_inputs=200)
 @modal.asgi_app()
 def web():
     import httpx
     from fastapi import FastAPI, Request
-    from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+    from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
     from starlette.background import BackgroundTask
 
     api = FastAPI()
     client = httpx.AsyncClient(timeout=httpx.Timeout(900, connect=20))
     cors = {"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
             "Access-Control-Allow-Headers": "*"}
+    direct_paths = ("view", "api/view", "h3-mobile/api/history/download-all", "h3-mobile/api/long/download")
     touch_paths = ("view", "upload", "prompt", "h3-mobile/api/long/run", "h3-mobile/api/history/download-all",
                    "h3-mobile/api/long/download", "h3-mobile/api/models/prepare")
 
@@ -258,6 +259,9 @@ def web():
         if path.startswith(touch_paths):
             await state.put.aio("touch", time.time())
         target = url.rstrip("/") + "/" + path + (("?" + request.url.query) if request.url.query else "")
+        if request.method in ("GET", "HEAD") and path.startswith(direct_paths):
+            # videos and zips: let the phone fetch them straight from the GPU (no second hop through this small proxy)
+            return RedirectResponse(target, status_code=307, headers=cors)
         headers = {k: v for k, v in request.headers.items()
                    if k.lower() not in ("host", "content-length", "connection", "accept-encoding")}
         body = await request.body()
