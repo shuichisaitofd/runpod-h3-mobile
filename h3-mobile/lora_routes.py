@@ -52,6 +52,7 @@ MANAGED_LORA_SPECS = {
     "Rough.Sex.safetensors": "7c212b6f904db4f3841f74b08a1be334cbf9c68512d74c51138496ac15b095fd",
     "H3_speed_slider_1.1.safetensors": "593b074e8eb17bf9f858c3586fc12f53038dbfdd9634e146fe34a17e2661ca40",
     "HMNSFW-Extreme-Realism.safetensors": "55aa39239ea4b408dee601cb0fa49157ec13fe2a54eccbb2fb725b124e43c1b5",
+    "h3-cunnilingus-step16000-k3nk-r16-k3nk.safetensors": "e9882c54a15fdc62ffe72af763527aee457758894c88cac6ed3ffd700402ffe7",
 }
 
 # User-supplied LoRAs remain file-upload only; there is no user URL/Civitai
