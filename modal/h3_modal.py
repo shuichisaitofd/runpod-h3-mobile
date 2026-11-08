@@ -246,6 +246,86 @@ def web():
         await state.put.aio("touch", time.time())
         return JSONResponse({"ok": True}, headers=cors)
 
+    # RunPod one-tap start for H3 Studio β. The phone sends its own RunPod API key with each request
+    # (browsers cannot call the RunPod API directly because of CORS). The key is never stored or logged here.
+    RP = "https://rest.runpod.io/v1"
+    RP_TEMPLATE = "rp0bq9dcco"  # H3 Mobile - veda 10max long
+    RP_GPUS = ("NVIDIA RTX A6000", "NVIDIA L40S", "NVIDIA RTX 6000 Ada Generation", "NVIDIA A40")
+
+    async def rp_body(request):
+        try:
+            b = json.loads((await request.body()) or b"{}")
+        except Exception:
+            b = {}
+        return b if isinstance(b, dict) else {}
+
+    async def rp_call(method, path, key, body=None):
+        r = await client.request(method, RP + path, json=body, timeout=60,
+                                 headers={"Authorization": "Bearer " + key})
+        try:
+            data = r.json()
+        except Exception:
+            data = {"error": r.text[:300]}
+        return r.status_code, data
+
+    def rp_err(data):
+        if isinstance(data, dict):
+            return str(data.get("error") or data.get("message") or data)[:400]
+        return str(data)[:400]
+
+    @api.post("/h3modal/runpod/create")
+    async def rp_create(request: Request):
+        b = await rp_body(request)
+        key, gpu, image = str(b.get("key") or ""), str(b.get("gpu") or ""), str(b.get("image") or "")
+        if not key:
+            return JSONResponse({"ok": False, "error": "API key missing"}, headers=cors)
+        if gpu not in RP_GPUS:
+            return JSONResponse({"ok": False, "error": "GPU not allowed: " + gpu}, headers=cors)
+        if not image.startswith("ghcr.io/shuichisaitofd/runpod-h3-mobile:"):
+            return JSONResponse({"ok": False, "error": "image not allowed"}, headers=cors)
+        base = {"name": str(b.get("name") or "h3-quick")[:60], "templateId": RP_TEMPLATE, "imageName": image,
+                "gpuTypeIds": [gpu], "gpuCount": 1, "cloudType": "SECURE", "computeType": "GPU",
+                "containerDiskInGb": 150, "volumeInGb": 100, "volumeMountPath": "/workspace",
+                "ports": ["8188/http", "8888/http"]}
+        tries = []
+        for cuda in (["13.0", "13.1", "13.2", "13.3", "13.4"], None):
+            body = dict(base)
+            if cuda:
+                body["allowedCudaVersions"] = cuda
+            code, data = await rp_call("POST", "/pods", key, body)
+            tries.append({"cuda": cuda, "code": code, "error": None if code < 300 else rp_err(data)})
+            if code < 300 and isinstance(data, dict) and data.get("id"):
+                return JSONResponse({"ok": True, "id": data["id"], "costPerHr": data.get("costPerHr"),
+                                     "tries": tries}, headers=cors)
+            if code in (401, 403):
+                break
+        return JSONResponse({"ok": False, "error": tries[-1]["error"], "tries": tries}, headers=cors)
+
+    @api.post("/h3modal/runpod/pods")
+    async def rp_pods(request: Request):
+        b = await rp_body(request)
+        key = str(b.get("key") or "")
+        if not key:
+            return JSONResponse({"ok": False, "error": "API key missing"}, headers=cors)
+        code, data = await rp_call("GET", "/pods", key)
+        if code >= 300 or not isinstance(data, list):
+            return JSONResponse({"ok": False, "error": rp_err(data), "code": code}, headers=cors)
+        pods = [{"id": p.get("id"), "name": p.get("name"), "desiredStatus": p.get("desiredStatus"),
+                 "costPerHr": p.get("costPerHr"), "image": p.get("image"),
+                 "gpu": (p.get("gpu") or {}).get("displayName") if isinstance(p.get("gpu"), dict) else None}
+                for p in data if isinstance(p, dict)]
+        return JSONResponse({"ok": True, "pods": pods}, headers=cors)
+
+    @api.post("/h3modal/runpod/delete")
+    async def rp_delete(request: Request):
+        b = await rp_body(request)
+        key, pid = str(b.get("key") or ""), str(b.get("id") or "")
+        if not key or not pid.isalnum():
+            return JSONResponse({"ok": False, "error": "API key or pod id missing"}, headers=cors)
+        code, data = await rp_call("DELETE", "/pods/" + pid, key)
+        return JSONResponse({"ok": code < 300, "code": code, "error": None if code < 300 else rp_err(data)},
+                            headers=cors)
+
     @api.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
     async def proxy(path: str, request: Request):
         if request.method == "OPTIONS":
