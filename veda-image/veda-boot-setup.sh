@@ -72,6 +72,25 @@ if [ "$(git -C "$HG" rev-parse HEAD 2>/dev/null)" != "$HG_REV" ]; then
   need_restart=1
 fi
 
+# 2c. GPUs other than the RTX A6000 (SM86): the image's SageAttention only has SM86 kernels, so the H3 Mobile workflows use PyTorch attention there.
+CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n1 | tr -d ' ')
+if [ -n "$CAP" ] && [ "$CAP" != "8.6" ]; then
+  log "GPU compute capability $CAP (not 8.6): turning SageAttention off in the H3 Mobile workflows"
+  "$PY/python" - <<'PYEOF' || log "could not edit the workflows"
+import glob, json
+for p in glob.glob('/workspace/runpod-slim/ComfyUI/custom_nodes/ComfyUI-H3-Mobile/api_workflows/*.json'):
+    g = json.load(open(p))
+    n = 0
+    for v in g.values():
+        if isinstance(v, dict) and v.get('class_type') == 'PathchSageAttentionKJ' and v.get('inputs', {}).get('sage_attention') != 'disabled':
+            v['inputs']['sage_attention'] = 'disabled'
+            n += 1
+    if n:
+        json.dump(g, open(p, 'w'), indent=2)
+        print('sage disabled in', p)
+PYEOF
+fi
+
 # 3. Predictor model (275 MB, size + sha256 checked)
 if ! { [ -f "$PRED" ] && [ "$(stat -c %s "$PRED")" = "$PRED_SIZE" ] && [ "$(sha256sum "$PRED" | cut -d' ' -f1)" = "$PRED_SHA" ]; }; then
   status "WORKING: downloading the Veda predictor model (275 MB)"
