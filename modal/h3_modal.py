@@ -21,7 +21,7 @@ IMAGE_TAG = "ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-longtest-c9443c9e535d305
 GPU = "L40S"
 IDLE_MINUTES = 20
 # lora_routes.py (H3 Mobile long-video / LoRA routes) is taken from this commit, so Modal gets fixes without an image rebuild.
-LORA_ROUTES_SHA = "6244f533623bedd19a346408989849122d940b9d"
+LORA_ROUTES_SHA = "599587cfb064c01b806e951192d8b7b6bc66776d"
 W = "/workspace/runpod-slim"
 C = W + "/ComfyUI"
 
@@ -82,6 +82,81 @@ state = modal.Dict.from_name("h3-modal-state", create_if_missing=True)
 def _set(**kw):
     for k, v in kw.items():
         state[k] = v
+
+
+RP_TEMPLATE = "rp0bq9dcco"  # RunPod template "H3 Mobile - veda 10max long" (disk sizes / ports come from it)
+
+
+def rp_deploy(key, gpu, image, name):
+    """Create one RunPod Pod with the same GraphQL call as the runpod-a6000-watcher workflow
+    (it can ask for CUDA 13.0+ hosts with minCudaVersion, which the REST API cannot). The key is not logged."""
+    import re
+
+    import httpx
+    name = re.sub(r"[^A-Za-z0-9_.-]", "-", str(name or "h3-quick"))[:60]
+    args = ", ".join([
+        "cloudType: SECURE", "gpuCount: 1", "gpuTypeId: " + json.dumps(gpu), "name: " + json.dumps(name),
+        "templateId: " + json.dumps(RP_TEMPLATE), "imageName: " + json.dumps(image),
+        "containerDiskInGb: 150", "volumeInGb: 100", 'volumeMountPath: "/workspace"', 'minCudaVersion: "13.0"'])
+    q = "mutation { podFindAndDeployOnDemand(input: { " + args + " }) { id imageName machineId } }"
+    try:
+        r = httpx.post("https://api.runpod.io/graphql", json={"query": q}, timeout=60,
+                       headers={"Authorization": "Bearer " + key})
+        data = r.json()
+    except Exception as e:
+        return {"ok": False, "noCapacity": False, "error": "RunPod API: " + str(e)[:200]}
+    pod = ((data or {}).get("data") or {}).get("podFindAndDeployOnDemand") if isinstance(data, dict) else None
+    if pod and pod.get("id"):
+        return {"ok": True, "id": pod["id"], "gpu": gpu}
+    errs = data.get("errors") if isinstance(data, dict) else None
+    msg = str((errs[0] or {}).get("message") if errs else data)[:400]
+    busy = bool(re.search(r"no longer any instances|not available|no available|capacity|insufficient", msg, re.I))
+    return {"ok": False, "noCapacity": busy, "error": msg}
+
+
+def _ntfy(topic, text):
+    if not topic:
+        return
+    try:
+        import httpx
+        httpx.post("https://ntfy.sh/" + topic, content=text.encode(), timeout=15,
+                   headers={"Title": "H3 RunPod", "Priority": "high", "Click": "https://shuichisaitofd.github.io/h3-studio-next/"})
+    except Exception:
+        pass
+
+
+web_lite = modal.Image.debian_slim(python_version="3.12").pip_install("httpx==0.28.1")
+
+
+@app.function(image=web_lite, cpu=0.125, memory=256, timeout=480)
+def rp_watch(wid: str, key: str, gpus: list, image: str, topic: str = ""):
+    """Try to get a RunPod Pod every 10 s for 5 minutes. Progress goes to state['rpwatch:<wid>']."""
+    k = "rpwatch:" + wid
+    started = time.time()
+    tries = 0
+    labels = {"NVIDIA RTX A6000": "A6000", "NVIDIA L40S": "L40S"}
+    while True:
+        if state.get("rpwatch-stop:" + wid, False):
+            state[k] = {"status": "stopped", "started": started, "tries": tries, "gpus": gpus}
+            return
+        gpu = gpus[tries % len(gpus)]
+        tries += 1
+        res = rp_deploy(key, gpu, image, "h3-" + labels.get(gpu, "gpu").lower())
+        if res.get("ok"):
+            state[k] = {"status": "ok", "id": res["id"], "gpu": gpu, "started": started, "tries": tries,
+                        "gpus": gpus, "at": time.time()}
+            _ntfy(topic, f"✅ RunPod {labels.get(gpu, gpu)} を確保しました（{res['id']}）。課金中です。H3 Studio β を開くと自動で切り替わります。")
+            return
+        if not res.get("noCapacity"):
+            state[k] = {"status": "error", "error": res.get("error"), "started": started, "tries": tries, "gpus": gpus}
+            _ntfy(topic, "RunPod を起動できませんでした: " + str(res.get("error"))[:200])
+            return
+        if time.time() - started > 300:
+            state[k] = {"status": "timeout", "started": started, "tries": tries, "gpus": gpus}
+            _ntfy(topic, "5分間、RunPod に空きがありませんでした。もう一度「起動」を押すと、また5分見張ります。")
+            return
+        state[k] = {"status": "watching", "started": started, "tries": tries, "gpus": gpus}
+        time.sleep(10)
 
 
 @app.function(image=gpu_image, gpu=GPU, cpu=2.0, memory=32768, timeout=6 * 3600, max_containers=1)
@@ -251,7 +326,6 @@ def web():
     # RunPod one-tap start for H3 Studio β. The phone sends its own RunPod API key with each request
     # (browsers cannot call the RunPod API directly because of CORS). The key is never stored or logged here.
     RP = "https://rest.runpod.io/v1"
-    RP_TEMPLATE = "rp0bq9dcco"  # H3 Mobile - veda 10max long
     RP_GPUS = ("NVIDIA RTX A6000", "NVIDIA L40S", "NVIDIA RTX 6000 Ada Generation", "NVIDIA A40")
 
     async def rp_body(request):
@@ -285,28 +359,46 @@ def web():
             return JSONResponse({"ok": False, "error": "GPU not allowed: " + gpu}, headers=cors)
         if not image.startswith("ghcr.io/shuichisaitofd/runpod-h3-mobile:"):
             return JSONResponse({"ok": False, "error": "image not allowed"}, headers=cors)
-        # Same GraphQL call as the runpod-a6000-watcher workflow: it can ask for CUDA 13.0+ hosts (minCudaVersion),
-        # which the REST API cannot.
-        name = re.sub(r"[^A-Za-z0-9_.-]", "-", str(b.get("name") or "h3-quick"))[:60]
-        args = ", ".join([
-            "cloudType: SECURE", "gpuCount: 1", "gpuTypeId: " + json.dumps(gpu), "name: " + json.dumps(name),
-            "templateId: " + json.dumps(RP_TEMPLATE), "imageName: " + json.dumps(image),
-            "containerDiskInGb: 150", "volumeInGb: 100", 'volumeMountPath: "/workspace"', 'minCudaVersion: "13.0"'])
-        q = "mutation { podFindAndDeployOnDemand(input: { " + args + " }) { id imageName machineId } }"
-        try:
-            r = await client.post("https://api.runpod.io/graphql", json={"query": q}, timeout=60,
-                                  headers={"Authorization": "Bearer " + key})
-            data = r.json()
-        except Exception as e:
-            return JSONResponse({"ok": False, "error": "RunPod API: " + str(e)[:200]}, headers=cors)
-        pod = ((data or {}).get("data") or {}).get("podFindAndDeployOnDemand") if isinstance(data, dict) else None
-        if pod and pod.get("id"):
-            return JSONResponse({"ok": True, "id": pod["id"], "gpu": gpu},
-                                headers=cors)
-        errs = (data or {}).get("errors") if isinstance(data, dict) else None
-        msg = str((errs or [{}])[0].get("message") or data)[:400] if errs else rp_err(data)
-        busy = bool(re.search(r"no longer any instances|not available|no available|capacity|insufficient", msg, re.I))
-        return JSONResponse({"ok": False, "noCapacity": busy, "error": msg}, headers=cors)
+        import asyncio
+        res = await asyncio.to_thread(rp_deploy, key, gpu, image, str(b.get("name") or "h3-quick"))
+        return JSONResponse(res, headers=cors)
+
+    # Server-side watch: the phone can close the page. A tiny CPU job tries every 10 s for 5 minutes.
+    @api.post("/h3modal/runpod/watch")
+    async def rp_watch_start(request: Request):
+        import uuid
+        b = await rp_body(request)
+        key, image = str(b.get("key") or ""), str(b.get("image") or "")
+        gpus = [g for g in (b.get("gpus") or []) if g in RP_GPUS][:4]
+        if not key:
+            return JSONResponse({"ok": False, "error": "API key missing"}, headers=cors)
+        if not gpus:
+            return JSONResponse({"ok": False, "error": "GPU not allowed"}, headers=cors)
+        if not image.startswith("ghcr.io/shuichisaitofd/runpod-h3-mobile:"):
+            return JSONResponse({"ok": False, "error": "image not allowed"}, headers=cors)
+        topic = re.sub(r"[^A-Za-z0-9_-]", "", str(b.get("ntfy") or ""))[:64]
+        wid = uuid.uuid4().hex
+        await state.put.aio("rpwatch:" + wid, {"status": "watching", "started": time.time(), "tries": 0,
+                                               "gpus": gpus})
+        await rp_watch.spawn.aio(wid, key, gpus, image, topic)
+        return JSONResponse({"ok": True, "watch": wid}, headers=cors)
+
+    @api.post("/h3modal/runpod/watch-status")
+    async def rp_watch_status(request: Request):
+        b = await rp_body(request)
+        wid = re.sub(r"[^0-9a-f]", "", str(b.get("watch") or ""))[:32]
+        st = await state.get.aio("rpwatch:" + wid, None) if wid else None
+        if not st:
+            return JSONResponse({"ok": False, "error": "unknown watch"}, headers=cors)
+        return JSONResponse({"ok": True, **st}, headers=cors)
+
+    @api.post("/h3modal/runpod/watch-stop")
+    async def rp_watch_stop(request: Request):
+        b = await rp_body(request)
+        wid = re.sub(r"[^0-9a-f]", "", str(b.get("watch") or ""))[:32]
+        if wid:
+            await state.put.aio("rpwatch-stop:" + wid, True)
+        return JSONResponse({"ok": True}, headers=cors)
 
     @api.post("/h3modal/runpod/pods")
     async def rp_pods(request: Request):
