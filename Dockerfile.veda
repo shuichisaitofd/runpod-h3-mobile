@@ -8,4 +8,6 @@ COPY veda-image/veda-boot-setup.sh /opt/h3-veda/veda-boot-setup.sh
 COPY veda-image/run-h3-veda.sh /run-h3-veda.sh
 COPY veda-image/h3_long_test.py /opt/h3-veda/h3_long_test.py
 RUN chmod +x /opt/h3-veda/veda-boot-setup.sh /run-h3-veda.sh && bash -n /opt/h3-veda/veda-boot-setup.sh && bash -n /run-h3-veda.sh
+# Long-video test image: allow GPUs other than the RTX A6000 (for example L40S). veda-boot-setup.sh step 2c turns SageAttention off in the workflows on those GPUs.
+RUN python3.12 -c "p='/run-h3.sh'; s=open(p).read(); a='assert cap == (8, 6), f\"Expected SM86, got {cap}\"'; assert a in s; s=s.replace(a, 'print(\"[H3] Not SM86: SageAttention will be turned off in the workflows\") if cap != (8, 6) else None'); open(p,'w').write(s)" && ! grep -q 'Expected SM86' /run-h3.sh && bash -n /run-h3.sh
 ENTRYPOINT ["/run-h3-veda.sh"]
