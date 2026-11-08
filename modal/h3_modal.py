@@ -428,7 +428,27 @@ def web():
         if not key or not pid.isalnum():
             return JSONResponse({"ok": False, "error": "API key or pod id missing"}, headers=cors)
         code, data = await rp_call("DELETE", "/pods/" + pid, key)
-        return JSONResponse({"ok": code < 300, "code": code, "error": None if code < 300 else rp_err(data)},
+        if code < 300:
+            return JSONResponse({"ok": True, "code": code, "via": "rest"}, headers=cors)
+        rest_err = "REST " + str(code) + ": " + (rp_err(data) or "(no message)")
+        # Fallback: the GraphQL call the runpod-a6000-watcher uses.
+        try:
+            r = await client.post("https://api.runpod.io/graphql", timeout=60,
+                                  headers={"Authorization": "Bearer " + key},
+                                  json={"query": "mutation { podTerminate(input: { podId: " + json.dumps(pid) + " }) }"})
+            gcode = r.status_code
+            try:
+                g = r.json()
+            except Exception:
+                g = {"errors": [{"message": r.text[:200]}]}
+        except Exception as e:
+            gcode, g = 0, {"errors": [{"message": str(e)[:200]}]}
+        errs = g.get("errors") if isinstance(g, dict) else None
+        if gcode < 300 and not errs:
+            return JSONResponse({"ok": True, "code": gcode, "via": "graphql", "rest": rest_err}, headers=cors)
+        gmsg = str((errs[0] or {}).get("message") if errs else g)[:200]
+        return JSONResponse({"ok": False, "code": code,
+                             "error": rest_err + " / GraphQL " + str(gcode) + ": " + (gmsg or "(no message)")},
                             headers=cors)
 
     @api.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
