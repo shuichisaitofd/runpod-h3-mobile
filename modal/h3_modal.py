@@ -189,6 +189,8 @@ st();setInterval(st,5000);
 @modal.concurrent(max_inputs=200)
 @modal.asgi_app()
 def web():
+    import re
+
     import httpx
     from fastapi import FastAPI, Request
     from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
@@ -283,23 +285,28 @@ def web():
             return JSONResponse({"ok": False, "error": "GPU not allowed: " + gpu}, headers=cors)
         if not image.startswith("ghcr.io/shuichisaitofd/runpod-h3-mobile:"):
             return JSONResponse({"ok": False, "error": "image not allowed"}, headers=cors)
-        base = {"name": str(b.get("name") or "h3-quick")[:60], "templateId": RP_TEMPLATE, "imageName": image,
-                "gpuTypeIds": [gpu], "gpuCount": 1, "cloudType": "SECURE", "computeType": "GPU",
-                "containerDiskInGb": 150, "volumeInGb": 100, "volumeMountPath": "/workspace",
-                "ports": ["8188/http", "8888/http"]}
-        tries = []
-        for cuda in (["13.0", "13.1", "13.2", "13.3", "13.4"], None):
-            body = dict(base)
-            if cuda:
-                body["allowedCudaVersions"] = cuda
-            code, data = await rp_call("POST", "/pods", key, body)
-            tries.append({"cuda": cuda, "code": code, "error": None if code < 300 else rp_err(data)})
-            if code < 300 and isinstance(data, dict) and data.get("id"):
-                return JSONResponse({"ok": True, "id": data["id"], "costPerHr": data.get("costPerHr"),
-                                     "tries": tries}, headers=cors)
-            if code in (401, 403):
-                break
-        return JSONResponse({"ok": False, "error": tries[-1]["error"], "tries": tries}, headers=cors)
+        # Same GraphQL call as the runpod-a6000-watcher workflow: it can ask for CUDA 13.0+ hosts (minCudaVersion),
+        # which the REST API cannot.
+        name = re.sub(r"[^A-Za-z0-9_.-]", "-", str(b.get("name") or "h3-quick"))[:60]
+        args = ", ".join([
+            "cloudType: SECURE", "gpuCount: 1", "gpuTypeId: " + json.dumps(gpu), "name: " + json.dumps(name),
+            "templateId: " + json.dumps(RP_TEMPLATE), "imageName: " + json.dumps(image),
+            "containerDiskInGb: 150", "volumeInGb: 100", 'volumeMountPath: "/workspace"', 'minCudaVersion: "13.0"'])
+        q = "mutation { podFindAndDeployOnDemand(input: { " + args + " }) { id imageName machineId } }"
+        try:
+            r = await client.post("https://api.runpod.io/graphql", json={"query": q}, timeout=60,
+                                  headers={"Authorization": "Bearer " + key})
+            data = r.json()
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": "RunPod API: " + str(e)[:200]}, headers=cors)
+        pod = ((data or {}).get("data") or {}).get("podFindAndDeployOnDemand") if isinstance(data, dict) else None
+        if pod and pod.get("id"):
+            return JSONResponse({"ok": True, "id": pod["id"], "gpu": gpu},
+                                headers=cors)
+        errs = (data or {}).get("errors") if isinstance(data, dict) else None
+        msg = str((errs or [{}])[0].get("message") or data)[:400] if errs else rp_err(data)
+        busy = bool(re.search(r"no longer any instances|not available|no available|capacity|insufficient", msg, re.I))
+        return JSONResponse({"ok": False, "noCapacity": busy, "error": msg}, headers=cors)
 
     @api.post("/h3modal/runpod/pods")
     async def rp_pods(request: Request):
@@ -310,9 +317,15 @@ def web():
         code, data = await rp_call("GET", "/pods", key)
         if code >= 300 or not isinstance(data, list):
             return JSONResponse({"ok": False, "error": rp_err(data), "code": code}, headers=cors)
+        def gpu_name(p):
+            g, m = p.get("gpu"), p.get("machine")
+            for src in (g if isinstance(g, dict) else {}, m if isinstance(m, dict) else {}):
+                for k in ("displayName", "gpuDisplayName", "id", "gpuTypeId"):
+                    if src.get(k):
+                        return str(src[k]).replace("NVIDIA ", "").replace("GeForce ", "")
+            return None
         pods = [{"id": p.get("id"), "name": p.get("name"), "desiredStatus": p.get("desiredStatus"),
-                 "costPerHr": p.get("costPerHr"), "image": p.get("image"),
-                 "gpu": (p.get("gpu") or {}).get("displayName") if isinstance(p.get("gpu"), dict) else None}
+                 "costPerHr": p.get("costPerHr"), "image": p.get("image"), "gpu": gpu_name(p)}
                 for p in data if isinstance(p, dict)]
         return JSONResponse({"ok": True, "pods": pods}, headers=cors)
 
