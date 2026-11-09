@@ -760,6 +760,25 @@ async def _long_queue(graph, extra, front=False, prompt_id=None):
     return r["prompt_id"]
 
 
+async def _long_wait_started(pid):
+    """Wait until ComfyUI has started (or finished) this prompt."""
+    while True:
+        q = await _long_http("GET", "/queue")
+        if any(len(x) > 1 and x[1] == pid for x in (q or {}).get("queue_running", [])):
+            return
+        h = await _long_http("GET", f"/history/{pid}")
+        if pid in (h or {}):
+            return
+        await asyncio.sleep(1.5)
+
+
+async def _long_unqueue(pid):
+    try:
+        await _long_http("POST", "/queue", {"delete": [pid]})
+    except Exception:
+        pass
+
+
 async def _long_wait(pid):
     while True:
         await asyncio.sleep(3)
@@ -794,7 +813,10 @@ def _long_keep_cache(base):
     return g
 
 
-_LONG_LOCK = asyncio.Lock()  # one long run at a time; the next one waits (FIFO). Normal jobs are not held.
+_LONG_LOCK = asyncio.Lock()  # one long run at a time; the next one waits (FIFO).
+# No cut-ins: as soon as one clip of a long run starts, the next clip (or the join) is queued at the front,
+# so normal jobs pressed meanwhile wait until the whole long run is finished (mixing LoRA sets between the
+# clips filled the Pod's RAM and made a clip take 10+ minutes).
 
 
 def _long_safe(title):
@@ -817,28 +839,42 @@ async def _long_worker(run_id, base, extra, clips, seconds, first_pid, prompts=N
             _long_update_meta(run_id, gen_started=st["gen_started"])
             await _long_queue(_long_build(base, run_id, 1, clips, seconds, part_prefix=_long_part_prefix(safe, 1)),
                               _long_extra(extra, run_id, f"1/{clips}"), prompt_id=first_pid)
+        def build_clip(idx):
+            return _long_build(base, run_id, idx, clips, seconds, (prompts or [None] * clips)[idx - 2] if idx > 1 else None,
+                               part_prefix=_long_part_prefix(safe, idx))
+
+        def build_join():
+            # The parts are found when the join runs (it is queued before the last clip has finished).
+            lines = "\n".join(f"@latest:{_long_part_prefix(safe, i)}@{int(st.get('gen_started') or st['started']) - 5}"
+                              for i in range(1, clips + 1))
+            # Keep the I2V loader nodes in this prompt (they are not run): a prompt without them makes ComfyUI
+            # drop the cached models, and the next normal job would load them from disk again (+1~2 min).
+            g = _long_keep_cache(base)
+            g["c"] = _long_node("H3LongConcat", files=lines, filename_prefix=f"video/{safe}_{clips}本つなぎ")
+            return g
+
         pid = first_pid
+        st["prompt_ids"].append(pid)
         for idx in range(1, clips + 1):
-            if idx > 1:
-                st.update(stage=f"{idx}/{clips}本目を生成中", clip=idx)
-                pid = await _long_queue(_long_build(base, run_id, idx, clips, seconds, (prompts or [None] * clips)[idx - 2],
-                                                    part_prefix=_long_part_prefix(safe, idx)),
-                                        _long_extra(extra, run_id, f"{idx}/{clips}"), front=True)
-            st["prompt_ids"].append(pid)
-            files = await _long_wait(pid)
-            if not files:
-                raise RuntimeError(f"{idx}本目の動画ファイルが見つかりません")
+            # queue the next step at the front as soon as this clip runs -> nothing can cut in between
+            await _long_wait_started(pid)
+            if idx < clips:
+                nxt = await _long_queue(build_clip(idx + 1), _long_extra(extra, run_id, f"{idx + 1}/{clips}"), front=True)
+            else:
+                nxt = await _long_queue(build_join(), _long_extra(extra, run_id, f"{clips}本つなぎ"), front=True)
+            st["prompt_ids"].append(nxt)
+            try:
+                files = await _long_wait(pid)
+                if not files:
+                    raise RuntimeError(f"{idx}本目の動画ファイルが見つかりません")
+            except Exception:
+                await _long_unqueue(nxt)
+                raise
             parts.append(files[0])
             _long_update_meta(run_id, parts=[dict(n=i + 1, filename=p["filename"], subfolder=p.get("subfolder", ""))
                                              for i, p in enumerate(parts)])
-        st.update(stage="つないでいます", clip=clips)
-        files_text = "\n".join(f"{p.get('subfolder', '')}/{p['filename']}".lstrip("/") for p in parts)
-        # Keep the I2V loader nodes in this prompt (they are not run): a prompt without them makes ComfyUI
-        # drop the cached models, and the next normal job would load them from disk again (+1~2 min).
-        g = _long_keep_cache(base)
-        g["c"] = _long_node("H3LongConcat", files=files_text, filename_prefix=f"video/{safe}_{clips}本つなぎ")
-        pid = await _long_queue(g, _long_extra(extra, run_id, f"{clips}本つなぎ"), front=True)
-        st["prompt_ids"].append(pid)
+            pid = nxt
+            st.update(stage=(f"{idx + 1}/{clips}本目を生成中" if idx < clips else "つないでいます"), clip=min(idx + 1, clips))
         final = await _long_wait(pid)
         st.update(stage="完成", done=True, final=(final[0] if final else None), finished=_time.time())
         if final:
@@ -1087,7 +1123,23 @@ class H3LongConcat:
 
     def join(self, files, filename_prefix):
         out_root = Path(folder_paths.get_output_directory())
-        parts = [out_root / f.strip() for f in str(files).splitlines() if f.strip()]
+        parts = []
+        for f in str(files).splitlines():
+            f = f.strip()
+            if not f:
+                continue
+            if f.startswith("@latest:"):
+                # "@latest:<subfolder/prefix>@<unix time>": the newest "<prefix>_NNNNN_.mp4" written after that time
+                spec, _, since = f[len("@latest:"):].rpartition("@")
+                d, stem = out_root / str(Path(spec).parent), Path(spec).name + "_"
+                found = sorted((x for x in (d.iterdir() if d.is_dir() else [])
+                                if x.name.startswith(stem) and x.suffix == ".mp4" and x.stat().st_mtime >= float(since or 0)),
+                               key=lambda x: x.stat().st_mtime)
+                if not found:
+                    raise RuntimeError(f"part not found: {spec}")
+                parts.append(found[-1])
+            else:
+                parts.append(out_root / f)
         for p in parts:
             if not p.is_file():
                 raise RuntimeError(f"part not found: {p}")
