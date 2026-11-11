@@ -84,6 +84,19 @@ def _set(**kw):
         state[k] = v
 
 
+CREDITS = 30.0        # Starter plan: $30 of free credits per month (usage limit is set to $30 too)
+GPU_PER_HOUR = 2.3    # L40S + 2 CPU + 32 GB memory, about $2.3 per hour
+
+
+def _add_gpu_secs(dt):
+    """Running total of GPU seconds this month (fallback when the billing API cannot be read)."""
+    k = "gpu_secs:" + time.strftime("%Y-%m", time.gmtime())
+    try:
+        state[k] = (state.get(k, 0) or 0) + max(0.0, float(dt))
+    except Exception:
+        pass
+
+
 RP_TEMPLATE = "rp0bq9dcco"  # RunPod template "H3 Mobile - veda 10max long" (disk sizes / ports come from it)
 
 
@@ -188,12 +201,16 @@ def gpu_server(idle_minutes: int = IDLE_MINUTES):
                 except Exception:
                     time.sleep(2)
                     state["hb"] = time.time()
+                    _add_gpu_secs(2)
                     if time.time() - t0 > 900:
                         raise RuntimeError("ComfyUI did not start in 15 minutes")
             _set(url=tunnel.url, status="ready", ready_at=time.time(), hb=time.time())
             last = time.time()
+            tick = time.time()
             while True:
                 time.sleep(15)
+                _add_gpu_secs(time.time() - tick)
+                tick = time.time()
                 if proc.poll() is not None:
                     raise RuntimeError("ComfyUI stopped")
                 if state.get("stop"):
@@ -240,6 +257,7 @@ button.sec{background:#26262b;color:#f2f2f2}code{word-break:break-all;background
 </style></head><body>
 <h1>H3 on Modal（テスト）</h1>
 <div class="card"><div>状態：<b id="st">…</b></div><div class="s" id="sub"></div></div>
+<div class="card"><div>今月の使用：<b id="use">…</b></div><div class="s" id="use2"></div></div>
 <div class="card"><button id="start">GPUを起動</button><button class="sec" id="ext">停止を先に延ばす</button><button class="sec" id="stop">GPUを停止</button></div>
 <div class="card s">H3 Studio β の設定で、Podの代わりにこのURLを登録します：<br><code id="me"></code><br>
 GPUは使われていない状態が""" + str(IDLE_MINUTES) + """分続くと自動で止まります。止まると動画は消えるので、先にダウンロードしてください。</div>
@@ -256,7 +274,11 @@ document.querySelectorAll('button').forEach(b=>b.dataset.t=b.textContent);
 document.getElementById('start').onclick=e=>{document.getElementById('st').textContent='起動中';post('/h3modal/start',e.target,'起動しています…');};
 document.getElementById('stop').onclick=e=>{if(confirm('GPUを止めますか？（動画は消えます）'))post('/h3modal/stop',e.target,'止めています…');};
 document.getElementById('ext').onclick=e=>post('/h3modal/extend',e.target,'延ばしました（20分）');
-st();setInterval(st,5000);
+async function us(){try{const j=await (await fetch('/h3modal/usage',{cache:'no-store'})).json();
+document.getElementById('use').textContent='$'+j.used.toFixed(2)+' / $'+j.limit.toFixed(0)+'（残り $'+j.left.toFixed(2)+'）';
+document.getElementById('use2').textContent='GPU はあと約'+j.hours_left+'時間使えます（1時間 約$'+j.per_hour+'）。'+(j.source==='modal'?'Modal の集計（数分おくれます）':'目安（このページで動かした GPU の時間から計算）')+'。毎月1日に $'+j.limit.toFixed(0)+' に戻ります。';}
+catch(e){document.getElementById('use').textContent='取得できませんでした';}}
+st();us();setInterval(st,5000);setInterval(us,60000);
 </script></body></html>"""
 
 
@@ -290,6 +312,30 @@ def web():
             st = "stopped"  # the GPU container died without saying so
         out["status"] = st
         return out
+
+    usage_cache = {"t": 0.0, "v": None}
+
+    def billing_used():
+        ws = modal.Workspace.from_context()
+        return float(ws.billing.summary().metered_cost)
+
+    @api.get("/h3modal/usage")
+    async def usage():
+        import asyncio
+        now = time.time()
+        if usage_cache["v"] and now - usage_cache["t"] < 120:
+            return JSONResponse(usage_cache["v"], headers=cors)
+        month = time.strftime("%Y-%m", time.gmtime())
+        out = {"limit": CREDITS, "per_hour": GPU_PER_HOUR, "month": month}
+        try:
+            out.update(source="modal", used=round(await asyncio.to_thread(billing_used), 2))
+        except Exception as e:
+            secs = await state.get.aio("gpu_secs:" + month, 0) or 0
+            out.update(source="estimate", used=round(secs * GPU_PER_HOUR / 3600, 2), error=str(e)[:200])
+        out["left"] = round(max(0.0, CREDITS - out["used"]), 2)
+        out["hours_left"] = round(out["left"] / GPU_PER_HOUR, 1)
+        usage_cache.update(t=now, v=out)
+        return JSONResponse(out, headers=cors)
 
     @api.get("/h3modal")
     async def page():
