@@ -53,6 +53,7 @@ MANAGED_LORA_SPECS = {
     "H3_speed_slider_1.1.safetensors": "593b074e8eb17bf9f858c3586fc12f53038dbfdd9634e146fe34a17e2661ca40",
     "HMNSFW-Extreme-Realism.safetensors": "55aa39239ea4b408dee601cb0fa49157ec13fe2a54eccbb2fb725b124e43c1b5",
     "h3-cunnilingus-step16000-k3nk-r16-k3nk.safetensors": "e9882c54a15fdc62ffe72af763527aee457758894c88cac6ed3ffd700402ffe7",
+    "cxy_kiss_v03_000002000.safetensors": "0cea499704d8532bceda8d80ff6afd99923beedad1ef648efcb09e37326ed868",
 }
 
 # User-supplied LoRAs remain file-upload only; there is no user URL/Civitai
