@@ -455,6 +455,39 @@ _EROS_STATE = {
 }
 
 
+_EROS_PARALLEL = 8  # parallel HTTP range requests (HF is ~5x faster with 8 than with 1)
+
+
+async def _eros_fetch_range(session, url, fd, start, end, state) -> None:
+    pos = start
+    last = None
+    for attempt in range(8):
+        if pos > end:
+            return
+        try:
+            headers = {"User-Agent": "h3-mobile-runpod", "Range": f"bytes={pos}-{end}"}
+            async with session.get(url, headers=headers, allow_redirects=True) as response:
+                if response.status != 206:
+                    raise RuntimeError(f"Hugging Face HTTP {response.status}")
+                async for chunk in response.content.iter_chunked(4 * 1024 * 1024):
+                    if pos + len(chunk) > end + 1:
+                        chunk = chunk[: end + 1 - pos]
+                    await asyncio.to_thread(os.pwrite, fd, chunk, pos)
+                    pos += len(chunk)
+                    state["downloaded"] += len(chunk)
+                    if pos > end:
+                        break
+            if pos > end:
+                return
+            last = RuntimeError("connection closed early")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # retry this range from where it stopped
+            last = exc
+        await asyncio.sleep(min(30, 3 * (attempt + 1)))
+    raise RuntimeError(f"ダウンロードが途中で止まりました（{last}）。もう一度ボタンを押してください")
+
+
 async def _eros_download(key) -> None:
     spec = EROS_MODELS[key]
     state = _EROS_STATE[key]
@@ -469,31 +502,31 @@ async def _eros_download(key) -> None:
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / spec["filename"]
         part = dest_dir / (spec["filename"] + ".part")
-        existing = part.stat().st_size if part.is_file() else 0
-        headers = {"User-Agent": "h3-mobile-runpod"}
-        if existing:
-            headers["Range"] = f"bytes={existing}-"
-        state.update(status="downloading", downloaded=existing, error=None)
+        with part.open("wb") as handle:
+            handle.truncate(size)
+        state.update(status="downloading", downloaded=0, error=None)
+        n = _EROS_PARALLEL
+        step = -(-size // n)
+        ranges = [(i * step, min(size, (i + 1) * step) - 1) for i in range(n) if i * step < size]
         timeout = aiohttp.ClientTimeout(total=None, connect=60, sock_read=180)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(
-                spec["url"], headers=headers, allow_redirects=True
-            ) as response:
-                if response.status == 416 and existing:
-                    pass
-                elif response.status not in (200, 206):
-                    raise RuntimeError(f"Hugging Face HTTP {response.status}")
-                else:
-                    if existing and response.status == 200:
-                        existing = 0
-                        state["downloaded"] = 0
-                    mode = "ab" if existing and response.status == 206 else "wb"
-                    with part.open(mode) as handle:
-                        async for chunk in response.content.iter_chunked(8 * 1024 * 1024):
-                            handle.write(chunk)
-                            state["downloaded"] += len(chunk)
-        if not part.is_file() or part.stat().st_size != size:
-            raise RuntimeError("ダウンロードが途中で止まりました。もう一度ボタンを押してください")
+        fd = os.open(part, os.O_WRONLY)
+        try:
+            connector = aiohttp.TCPConnector(limit=n + 2)
+            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+                tasks = [
+                    asyncio.create_task(_eros_fetch_range(session, spec["url"], fd, a, b, state))
+                    for a, b in ranges
+                ]
+                try:
+                    await asyncio.gather(*tasks)
+                except BaseException:
+                    for task in tasks:
+                        task.cancel()
+                    await asyncio.gather(*tasks, return_exceptions=True)
+                    raise
+        finally:
+            os.close(fd)
+        print(f"[H3] {spec['label']} downloaded with {len(ranges)} parallel connections")
         state["status"] = "verifying"
         actual = await asyncio.to_thread(_sha256, part)
         if actual.lower() != spec["sha256"]:
