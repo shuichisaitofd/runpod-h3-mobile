@@ -465,7 +465,7 @@ async def _eros_fetch_range(session, url, fd, start, end, state) -> None:
         if pos > end:
             return
         try:
-            headers = {"User-Agent": "h3-mobile-runpod", "Range": f"bytes={pos}-{end}"}
+            headers = {"User-Agent": "h3-mobile-runpod", "Range": f"bytes={pos}-{end}", "Accept-Encoding": "identity"}
             async with session.get(url, headers=headers, allow_redirects=True) as response:
                 if response.status != 206:
                     raise RuntimeError(f"Hugging Face HTTP {response.status}")
@@ -656,6 +656,94 @@ if _pkg is not None and hasattr(_pkg, "MODE_SETS") and hasattr(_pkg, "MODEL_SPEC
     print("[H3] Veda image: stock FL2VA model excluded (10Eros-Max only)")
 else:
     print("[H3] Veda image: could not exclude stock FL2VA model")
+
+
+# Faster model downloads: the stock H3 models (Qwen 16GB, VAEs, Turbo LoRA) are
+# fetched with the same 8 parallel HTTP range requests as 10Eros. If the server
+# does not answer a range request, or the parallel download fails, the original
+# single-connection downloader of the parent package is used instead.
+async def _h3_remote_size(session, url):
+    headers = {"User-Agent": "h3-mobile-runpod", "Range": "bytes=0-0", "Accept-Encoding": "identity"}
+    async with session.get(url, headers=headers, allow_redirects=True) as response:
+        if response.status != 206:
+            return None
+        try:
+            return int(response.headers.get("Content-Range", "").rsplit("/", 1)[1])
+        except Exception:
+            return None
+
+
+if _pkg is not None and hasattr(_pkg, "_download_one") and not getattr(_pkg._download_one, "_h3_parallel", False):
+    _h3_orig_download_one = _pkg._download_one
+
+    async def _h3_parallel_download_one(key):
+        spec = _pkg.MODEL_SPECS[key]
+        dest = spec["path"]
+        tmp = Path(str(dest) + ".part")
+        state = _pkg._download_state[key]
+        if dest.is_file() and dest.stat().st_size > 0:
+            return await _h3_orig_download_one(key)
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            timeout = aiohttp.ClientTimeout(total=None, connect=60, sock_read=180)
+            connector = aiohttp.TCPConnector(limit=_EROS_PARALLEL + 2)
+            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+                size = await _h3_remote_size(session, spec["url"])
+                if size and size < 64 * 1024 * 1024:
+                    size = None  # small files: one connection is enough
+                if size:
+                    state.update(status="downloading", downloaded=0, total=size, error=None)
+                    with tmp.open("wb") as handle:
+                        handle.truncate(size)
+                    step = -(-size // _EROS_PARALLEL)
+                    ranges = [
+                        (i * step, min(size, (i + 1) * step) - 1)
+                        for i in range(_EROS_PARALLEL)
+                        if i * step < size
+                    ]
+                    fd = os.open(tmp, os.O_WRONLY)
+                    try:
+                        tasks = [
+                            asyncio.create_task(_eros_fetch_range(session, spec["url"], fd, a, b, state))
+                            for a, b in ranges
+                        ]
+                        try:
+                            await asyncio.gather(*tasks)
+                        except BaseException:
+                            for task in tasks:
+                                task.cancel()
+                            await asyncio.gather(*tasks, return_exceptions=True)
+                            raise
+                    finally:
+                        os.close(fd)
+            if size:
+                await asyncio.to_thread(_pkg._verify_sha256, key, tmp)
+                os.replace(tmp, dest)
+                if spec.get("sha256"):
+                    _pkg._verified_files[key] = _pkg._file_fingerprint(dest)
+                state.update(status="installed", downloaded=size, total=size, error=None)
+                print(f"[H3] {spec['label']} downloaded with {len(ranges)} parallel connections")
+                _pkg._download_tasks.pop(key, None)
+                return
+        except asyncio.CancelledError:
+            state["status"] = "paused"
+            _pkg._download_tasks.pop(key, None)
+            raise
+        except _pkg.SHA256MismatchError as exc:
+            state.update(status="sha256_error", error=str(exc))
+            _pkg._download_tasks.pop(key, None)
+            return
+        except Exception as exc:
+            print(f"[H3] {spec['label']}: parallel download failed ({exc}); using one connection")
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+        return await _h3_orig_download_one(key)
+
+    _h3_parallel_download_one._h3_parallel = True
+    _pkg._download_one = _h3_parallel_download_one
+    print("[H3] model downloads: 8 parallel connections")
 
 
 # ---------------------------------------------------------------------------
