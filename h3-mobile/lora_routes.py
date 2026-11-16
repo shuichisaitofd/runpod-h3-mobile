@@ -422,6 +422,14 @@ EROS_MODELS = {
         "size": 20970401624,
         "auto": True,
     },
+    "b72s": {
+        "label": "Singularity V2 × 10Eros beta7（BETA72・テスト）",
+        "filename": "10Eros_Max_h3_8stepTURBO_beta7_SingularityV2_int8HQ.safetensors",
+        "url": "https://huggingface.co/brocasong-ui/singularity-v2-beta7-int8-cache/resolve/main/10Eros_Max_h3_8stepTURBO_beta7_SingularityV2_int8HQ.safetensors",
+        "sha256": "ef5496dd5e8334dc12b395420ff2cf4ff5a959c6a2bd2965282115fefa3a5915",
+        "size": 22893150024,
+        "auto": False,
+    },
     "v2": {
         "label": "10Eros-Max 旧版 FL2VA INT8",
         "filename": "10Eros_Max_H3_FL2VA-INT8-ConvRot.safetensors",
