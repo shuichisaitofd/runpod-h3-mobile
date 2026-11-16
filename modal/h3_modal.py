@@ -21,7 +21,7 @@ IMAGE_TAG = "ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-longtest-c9443c9e535d305
 GPU = "L40S"
 IDLE_MINUTES = 20
 # lora_routes.py (H3 Mobile long-video / LoRA routes) is taken from this commit, so Modal gets fixes without an image rebuild.
-LORA_ROUTES_SHA = "151ca3bef0ccd0a1ff415c13b0aebaa4af90a5a5"
+LORA_ROUTES_SHA = "4092b921d090aa085d80c0735bd178efa7a53a5b"
 W = "/workspace/runpod-slim"
 C = W + "/ComfyUI"
 
