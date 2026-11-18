@@ -21,7 +21,7 @@ IMAGE_TAG = "ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-longtest-c9443c9e535d305
 GPU = "L40S"
 IDLE_MINUTES = 20
 # lora_routes.py (H3 Mobile long-video / LoRA routes) is taken from this commit, so Modal gets fixes without an image rebuild.
-LORA_ROUTES_SHA = "4092b921d090aa085d80c0735bd178efa7a53a5b"
+LORA_ROUTES_SHA = "17d6bbfae78cdfe1828ea705647d715c24a5ac0b"
 W = "/workspace/runpod-slim"
 C = W + "/ComfyUI"
 
@@ -382,12 +382,26 @@ def web():
         return b if isinstance(b, dict) else {}
 
     async def rp_call(method, path, key, body=None):
-        r = await client.request(method, RP + path, json=body, timeout=60,
-                                 headers={"Authorization": "Bearer " + key})
+        try:
+            r = await client.request(method, RP + path, json=body, timeout=60,
+                                     headers={"Authorization": "Bearer " + key})
+        except Exception as exc:  # e.g. the REST host stopped resolving (2026-11-19)
+            return 599, {"error": "REST unreachable: " + str(exc)[:200]}
         try:
             data = r.json()
         except Exception:
             data = {"error": r.text[:300]}
+        return r.status_code, data
+
+    async def rp_gql(key, query):
+        try:
+            r = await client.post("https://api.runpod.io/graphql", timeout=60,
+                                  headers={"Authorization": "Bearer " + key}, json={"query": query})
+            data = r.json()
+        except Exception as exc:
+            return 599, {"error": "GraphQL unreachable: " + str(exc)[:200]}
+        if isinstance(data, dict) and data.get("errors"):
+            return r.status_code if r.status_code >= 300 else 400, {"error": str(data["errors"])[:300]}
         return r.status_code, data
 
     def rp_err(data):
@@ -454,7 +468,16 @@ def web():
             return JSONResponse({"ok": False, "error": "API key missing"}, headers=cors)
         code, data = await rp_call("GET", "/pods", key)
         if code >= 300 or not isinstance(data, list):
-            return JSONResponse({"ok": False, "error": rp_err(data), "code": code}, headers=cors)
+            # Fallback: GraphQL (same API the create call uses).
+            gcode, g = await rp_gql(key, "query { myself { pods { id name desiredStatus costPerHr imageName "
+                                         "machine { gpuDisplayName } } } }")
+            pl = (((g or {}).get("data") or {}).get("myself") or {}).get("pods") if isinstance(g, dict) else None
+            if gcode >= 300 or not isinstance(pl, list):
+                return JSONResponse({"ok": False, "error": "REST " + str(code) + ": " + rp_err(data)
+                                     + " / GraphQL " + str(gcode) + ": " + rp_err(g), "code": gcode}, headers=cors)
+            data = [{"id": p.get("id"), "name": p.get("name"), "desiredStatus": p.get("desiredStatus"),
+                     "costPerHr": p.get("costPerHr"), "image": p.get("imageName"), "machine": p.get("machine")}
+                    for p in pl if isinstance(p, dict)]
         def gpu_name(p):
             g, m = p.get("gpu"), p.get("machine")
             for src in (g if isinstance(g, dict) else {}, m if isinstance(m, dict) else {}):
