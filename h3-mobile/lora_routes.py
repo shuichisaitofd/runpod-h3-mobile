@@ -55,6 +55,8 @@ MANAGED_LORA_SPECS = {
     "h3-cunnilingus-step16000-k3nk-r16-k3nk.safetensors": "e9882c54a15fdc62ffe72af763527aee457758894c88cac6ed3ffd700402ffe7",
     "cxy_kiss_v03_000002000.safetensors": "0cea499704d8532bceda8d80ff6afd99923beedad1ef648efcb09e37326ed868",
     "analMinimax_v1.safetensors": "b644eac3bc5b1ae49214d0fb8b45a471af8d22f0a41adddc13cb4277aced40d0",
+    "H3_VBVR_Pro-V2.safetensors": "cb3e9f2e395f63e0325213c0b802f26e6d4b6b1caf3f714a969b9aa56242bccb",
+    "Cinema-MH3-V02_000010000.safetensors": "cf7d8e1aeec12c757e0b557591fe493b2f50590a1e0e7b017e29e7268a39496b",
 }
 
 # User-supplied LoRAs remain file-upload only; there is no user URL/Civitai
