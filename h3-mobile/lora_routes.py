@@ -433,6 +433,14 @@ EROS_MODELS = {
         "size": 22893150024,
         "auto": False,
     },
+    "v10": {
+        "label": "10Eros-Max v1.0 hybrid INT8 HQ（最新）",
+        "filename": "10Eros_Max_8stepTurbo_v1.0_hybrid-int8_HQ.safetensors",
+        "url": "https://huggingface.co/TenStrip/10Eros-Max/resolve/main/10Eros_Max_8stepTurbo_v1.0_hybrid-int8_HQ.safetensors",
+        "sha256": "776194990379ecaf81f8c56925164894f78f3ab27d905c23d85c1164f20ec5bc",
+        "size": 22893198448,
+        "auto": False,
+    },
     "v2": {
         "label": "10Eros-Max 旧版 FL2VA INT8",
         "filename": "10Eros_Max_H3_FL2VA-INT8-ConvRot.safetensors",
