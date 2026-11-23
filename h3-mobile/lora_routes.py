@@ -57,6 +57,14 @@ MANAGED_LORA_SPECS = {
     "analMinimax_v1.safetensors": "b644eac3bc5b1ae49214d0fb8b45a471af8d22f0a41adddc13cb4277aced40d0",
     "H3_VBVR_Pro-V2.safetensors": "cb3e9f2e395f63e0325213c0b802f26e6d4b6b1caf3f714a969b9aa56242bccb",
     "Cinema-MH3-V02_000010000.safetensors": "cf7d8e1aeec12c757e0b557591fe493b2f50590a1e0e7b017e29e7268a39496b",
+    "Eros_AnimeNSFW.safetensors": "6c350388b28792ad90b7c9467a073bd23485093ebe37591747c99e7ff3095b17",
+    "Eros_AssJiggle.safetensors": "6335eaba65449038c4cb68c1e4968f5386c94a1e316abe613bb9a073fe87c447",
+    "Eros_CumMerge.safetensors": "6ea6a4386581b0e162962f45e7484b2916ff65f749ca092bac4dc2e959551922",
+    "Eros_FinalCut.safetensors": "5b67f40589bae364373638130de0d91dd4659ec42e3db46126b0bab7cf98267e",
+    "Eros_MotionBooster_V2.safetensors": "838b736c8273f277301beed517534fb4fd274ab6b1c3563825904dff1bd61d38",
+    "Eros_PLoRA.safetensors": "9917c25de4ec178260272c33569eac51b60220f47b876a903685dfb559d306a4",
+    "Eros_SilverAnel_Warmup.safetensors": "667c2807c3a3628917f1a4013a27dbf086c5bbd8b9d925e6a830f5117b899391",
+    "Eros_SlopBounce.safetensors": "97b83c7aea9e3cd644ce82e8a3dc1b99c743a66649f73222eccf0ba09f07f62f",
 }
 
 # User-supplied LoRAs remain file-upload only; there is no user URL/Civitai
