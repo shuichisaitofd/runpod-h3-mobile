@@ -423,7 +423,7 @@ EROS_MODELS = {
         "url": "https://huggingface.co/TenStrip/10Eros-Max/resolve/main/10Eros_Max_h3_raw_beta7_int8.safetensors",
         "sha256": "9a1fc37d490e68bf578de2c395bfea4e4891f0bd0694409d6d79acc977b274a9",
         "size": 20970401624,
-        "auto": True,
+        "auto": False,
     },
     "b72s": {
         "label": "Singularity V2 × 10Eros beta7（BETA72・テスト）",
@@ -439,7 +439,7 @@ EROS_MODELS = {
         "url": "https://huggingface.co/TenStrip/10Eros-Max/resolve/main/10Eros_Max_8stepTurbo_v1.0_hybrid-int8_HQ.safetensors",
         "sha256": "776194990379ecaf81f8c56925164894f78f3ab27d905c23d85c1164f20ec5bc",
         "size": 22893198448,
-        "auto": False,
+        "auto": True,
     },
     "v2": {
         "label": "10Eros-Max 旧版 FL2VA INT8",
