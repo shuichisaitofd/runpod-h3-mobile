@@ -1,4 +1,4 @@
-name: Build H3 Long-Video Test Image
+name: Build H3 TriPrism Test Image
 
 on:
   workflow_dispatch:
@@ -44,5 +44,4 @@ jobs:
           push: true
           pull: true
           tags: |
-            ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-longtest
-            ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-longtest-${{ github.sha }}
+            ghcr.io/shuichisaitofd/runpod-h3-mobile:h3-triprism-${{ github.sha }}

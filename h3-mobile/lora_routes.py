@@ -447,7 +447,7 @@ EROS_MODELS = {
         "url": "https://huggingface.co/TenStrip/10Eros-Max/resolve/main/10Eros_Max_8stepTurbo_v1.0_hybrid-int8_HQ.safetensors",
         "sha256": "776194990379ecaf81f8c56925164894f78f3ab27d905c23d85c1164f20ec5bc",
         "size": 22893198448,
-        "auto": True,
+        "auto": False,
     },
     "v2": {
         "label": "10Eros-Max 旧版 FL2VA INT8",
@@ -456,6 +456,14 @@ EROS_MODELS = {
         "sha256": "964a1e0ff49a393cf47bdb3c2bc39e57be02fc1b05fbbb2fddc3eae92dca322f",
         "size": 22484074696,
         "auto": False,
+    },
+    "triprism": {
+        "label": "TriPrism TurboFusion（8ステップ・実写寄り・テスト）",
+        "filename": "Sulphur3_10ErosMax_SingularityV2_TriPRISM_TurboFusion_realism_int8_convrot.safetensors",
+        "url": "https://huggingface.co/OliviaRossi/Minimax-H3-Sulphur3-10Erosmax-SingularityV2-TriPrism-TurboFusion/resolve/main/Sulphur3_10ErosMax_SingularityV2_TriPRISM_TurboFusion_realism_int8_convrot.safetensors",
+        "sha256": "75e7dbd540aaac8a14545fc01780da3c9940b89aed2c523f2f7786d36558540f",
+        "size": 21057666992,
+        "auto": True,
     },
 }
 _DM_DIRS = [Path(path) for path in folder_paths.get_folder_paths("diffusion_models")]
@@ -597,6 +605,11 @@ async def h3_mobile_eros_status(request):
     )
 
 
+@routes.get("/h3-mobile/api/triprism/workflow")
+async def h3_mobile_triprism_workflow(request):
+    return web.FileResponse(Path("/opt/h3-triprism/i2v_triprism.json"))
+
+
 @routes.post("/h3-mobile/api/eros/prepare")
 async def h3_mobile_eros_prepare(request):
     try:
@@ -610,7 +623,7 @@ async def h3_mobile_eros_prepare(request):
 
 
 async def _auto_eros_on_startup(_app):
-    # Veda test image: only the default 10Eros model is fetched automatically.
+    # This image fetches only TriPrism automatically.
     for key, spec in EROS_MODELS.items():
         if spec.get("auto"):
             _eros_start(key)
